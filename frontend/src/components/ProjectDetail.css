@@ -1,0 +1,35 @@
+.project-detail {
+  padding: 20px;
+}
+
+.project-header {
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.back-btn {
+  background: transparent;
+  border: none;
+  color: #667eea;
+  cursor: pointer;
+  padding: 5px 0;
+  margin-bottom: 10px;
+  font-size: 14px;
+}
+
+.back-btn:hover {
+  text-decoration: underline;
+}
+
+.project-header h2 {
+  margin: 0 0 5px 0;
+  color: #333;
+}
+
+.project-description {
+  margin: 5px 0 0 0;
+  color: #666;
+  font-size: 14px;
+}
+

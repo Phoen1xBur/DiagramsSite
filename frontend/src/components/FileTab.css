@@ -1,0 +1,30 @@
+.file-tab {
+  background: white;
+  padding: 15px;
+  border-radius: 8px;
+  margin: 10px 0;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.file-info {
+  margin-top: 15px;
+  padding: 10px;
+  background: #f9f9f9;
+  border-radius: 4px;
+}
+
+.error {
+  color: red;
+  margin-top: 10px;
+  padding: 10px;
+  background: #ffebee;
+  border-radius: 4px;
+}
+

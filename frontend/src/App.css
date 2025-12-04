@@ -1,0 +1,31 @@
+.app {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.tab-container {
+  margin-bottom: 10px;
+}
+
+.tab-button {
+  padding: 10px 20px;
+  margin-right: 5px;
+  background: #e0e0e0;
+  border: none;
+  cursor: pointer;
+  border-radius: 4px 4px 0 0;
+}
+
+.tab-button.active {
+  background: #4CAF50;
+  color: white;
+}
+
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+}
+

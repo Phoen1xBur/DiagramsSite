@@ -1,0 +1,147 @@
+.projects-tab {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.projects-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.view-switcher {
+  display: flex;
+  gap: 10px;
+}
+
+.view-switcher button {
+  padding: 8px 16px;
+  border: 2px solid #e0e0e0;
+  background: white;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.view-switcher button.active {
+  background: #4CAF50;
+  color: white;
+  border-color: #4CAF50;
+}
+
+.view-switcher button:hover:not(.active) {
+  background: #f5f5f5;
+}
+
+.refresh-btn {
+  padding: 8px 16px;
+  background: #2196F3;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.refresh-btn:hover {
+  background: #1976D2;
+}
+
+.projects-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.project-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px;
+  background: #f9f9f9;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+  transition: all 0.2s;
+  gap: 15px;
+}
+
+.project-item:hover {
+  background: #f0f0f0;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.project-item.active-file {
+  background: #e8f5e9;
+  border-color: #4CAF50;
+  border-width: 2px;
+}
+
+.project-status {
+  display: flex;
+  align-items: center;
+  min-width: 100px;
+}
+
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: help;
+}
+
+.status-open {
+  background: #4CAF50;
+  color: white;
+}
+
+.status-modified {
+  background: #ff9800;
+  color: white;
+}
+
+.project-info {
+  flex: 1;
+}
+
+.project-info h4 {
+  margin: 0 0 8px 0;
+  color: #333;
+}
+
+.project-meta {
+  margin: 0;
+  color: #666;
+  font-size: 13px;
+}
+
+.project-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+}
+
+.empty-state .hint {
+  margin-top: 10px;
+  font-size: 14px;
+  color: #999;
+}
+
+.error {
+  background: #ffebee;
+  color: #c62828;
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 15px;
+  border-left: 4px solid #c62828;
+}
+
