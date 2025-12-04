@@ -10,6 +10,11 @@ export default defineConfig({
       'diagrams.chandraloca.ru',
       '.chandraloca.ru' // Разрешаем все поддомены
     ],
+    hmr: {
+      host: 'diagrams.chandraloca.ru',
+      protocol: 'wss',
+      clientPort: 443
+    },
     watch: {
       usePolling: true
     }
