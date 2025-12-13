@@ -106,7 +106,11 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved }) 
     return (
       <div className="editor-tab">
         <div className="editor-container">
-          <p>Нет данных для редактирования. Загрузите файл или создайте новую таблицу.</p>
+          <div className="empty-state">
+            <div className="empty-state-icon">📊</div>
+            <h3>Нет данных для редактирования</h3>
+            <p>Загрузите файл Excel/CSV или создайте новую таблицу, чтобы начать работу</p>
+          </div>
         </div>
       </div>
     )

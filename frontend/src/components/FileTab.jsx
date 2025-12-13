@@ -109,50 +109,68 @@ function FileTab({ onFileLoaded, currentData, columns, fileId, onFileLoadedCallb
 
   return (
     <div className="file-tab">
-      <div className="controls">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".xlsx,.xls,.csv"
-          onChange={handleFileUpload}
-          disabled={loading}
-          style={{ display: 'none' }}
-        />
-        <button 
-          type="button" 
-          className="primary" 
-          disabled={loading}
-          onClick={handleButtonClick}
-        >
-          {loading ? 'Загрузка...' : 'Загрузить Excel/CSV'}
-        </button>
-
-        {currentData && (
-          <>
+      {!currentData ? (
+        <div className="empty-file-state">
+          <div className="empty-file-icon">📁</div>
+          <h3>Начните работу с данными</h3>
+          <p>Загрузите файл Excel или CSV, или создайте новую таблицу с нуля</p>
+          <div className="controls">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleFileUpload}
+              disabled={loading}
+              style={{ display: 'none' }}
+            />
+            <button 
+              type="button" 
+              className="primary" 
+              disabled={loading}
+              onClick={handleButtonClick}
+            >
+              {loading ? '⏳ Загрузка...' : '📤 Загрузить Excel/CSV'}
+            </button>
+            <button type="button" onClick={handleCreateNewTable}>
+              ➕ Создать новую таблицу
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="controls">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleFileUpload}
+              disabled={loading}
+              style={{ display: 'none' }}
+            />
+            <button 
+              type="button" 
+              className="primary" 
+              disabled={loading}
+              onClick={handleButtonClick}
+            >
+              {loading ? '⏳ Загрузка...' : '📤 Загрузить Excel/CSV'}
+            </button>
             <button type="button" onClick={handleExportToExcel} className="primary">
               💾 Экспорт в Excel
             </button>
             <button type="button" onClick={handleCreateNewTable}>
               ➕ Создать новую таблицу
             </button>
-          </>
-        )}
+          </div>
 
-        {!currentData && (
-          <button type="button" onClick={handleCreateNewTable}>
-            ➕ Создать новую таблицу
-          </button>
-        )}
-      </div>
+          {error && <div className="error">{error}</div>}
 
-      {error && <div className="error">{error}</div>}
-
-      {currentData && (
-        <div className="file-info">
-          <p>Загружено строк: {currentData.length}</p>
-          <p>Столбцов: {columns.length}</p>
-          {fileId && <p>ID файла: {fileId}</p>}
-        </div>
+          <div className="file-info">
+            <p>✅ Загружено строк: <strong>{currentData.length}</strong></p>
+            <p>📊 Столбцов: <strong>{columns.length}</strong></p>
+            {fileId && <p>🆔 ID файла: <strong>{fileId}</strong></p>}
+          </div>
+        </>
       )}
     </div>
   )

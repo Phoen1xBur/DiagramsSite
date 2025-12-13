@@ -1,8 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
+import json
+import uuid
 from app.core.database import get_db
+from app.core.redis_client import get_redis
 from app.core.security import verify_password, get_password_hash, create_access_token, decode_access_token
 from app.models.user import User, SubscriptionType
 from app.models.diagram import DataFile, Diagram
@@ -45,9 +49,66 @@ def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme), db:
     except HTTPException:
         return None
 
+def transfer_session_files_to_user(session_id: str, user_id: int, db: Session, redis) -> List[int]:
+    """Переносит все файлы из сессии Redis в БД и привязывает к пользователю"""
+    if not session_id:
+        return []
+    
+    transferred_files = []
+    session_files_key = f"session:{session_id}:files"
+    files_list_json = redis.get(session_files_key)
+    
+    if not files_list_json:
+        return []
+    
+    files_list = json.loads(files_list_json)
+    
+    for file_id in files_list:
+        session_key = f"session:{session_id}:file:{file_id}"
+        file_data_json = redis.get(session_key)
+        
+        if not file_data_json:
+            continue
+        
+        file_data = json.loads(file_data_json)
+        
+        # Создаем запись в БД
+        db_file = DataFile(
+            filename=file_data["filename"],
+            original_filename=file_data["original_filename"],
+            file_type=file_data["file_type"],
+            columns=file_data["columns"],
+            data=file_data["data"],
+            user_id=user_id,
+            project_id=None,
+            is_anonymous=False
+        )
+        
+        db.add(db_file)
+        db.flush()  # Получаем ID файла
+        
+        transferred_files.append(db_file.id)
+        
+        # Удаляем из Redis
+        redis.delete(session_key)
+    
+    # Удаляем список файлов сессии
+    redis.delete(session_files_key)
+    
+    if transferred_files:
+        db.commit()
+    
+    return transferred_files
+
 @router.post("/register", response_model=UserResponse)
-async def register(user_data: UserCreate, db: Session = Depends(get_db)):
-    """Регистрация нового пользователя"""
+async def register(
+    user_data: UserCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    redis = Depends(get_redis),
+    x_session_id: Optional[str] = Header(None, alias="X-Session-ID")
+):
+    """Регистрация нового пользователя. Автоматически переносит файлы из сессии."""
     # Проверяем, существует ли пользователь
     existing_user = db.query(User).filter(User.email == user_data.email).first()
     
@@ -93,6 +154,16 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_user)
     
+    # Переносим файлы из сессии, если есть
+    session_id = None
+    if x_session_id:
+        session_id = x_session_id
+    else:
+        session_id = request.cookies.get("session_id")
+    
+    if session_id:
+        transfer_session_files_to_user(session_id, db_user.id, db, redis)
+    
     return UserResponse(
         id=db_user.id,
         email=db_user.email,
@@ -105,10 +176,13 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 async def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    redis = Depends(get_redis),
+    x_session_id: Optional[str] = Header(None, alias="X-Session-ID")
 ):
-    """Вход пользователя по email или username"""
+    """Вход пользователя по email или username. Автоматически переносит файлы из сессии."""
     login_identifier = form_data.username  # Может быть email или username
     
     # Пытаемся найти пользователя по email или username
@@ -128,6 +202,16 @@ async def login(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Пользователь неактивен"
         )
+    
+    # Переносим файлы из сессии, если есть
+    session_id = None
+    if x_session_id:
+        session_id = x_session_id
+    else:
+        session_id = request.cookies.get("session_id")
+    
+    if session_id:
+        transfer_session_files_to_user(session_id, user.id, db, redis)
     
     # Создаем токен
     access_token = create_access_token(data={"sub": user.username})
@@ -149,10 +233,33 @@ async def login(
 @router.post("/transfer-anonymous-data")
 async def transfer_anonymous_data(
     request: TransferAnonymousDataRequest,
+    http_request: Request,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    redis = Depends(get_redis),
+    x_session_id: Optional[str] = Header(None, alias="X-Session-ID")
 ):
-    """Переносит анонимные данные в аккаунт пользователя"""
+    """Переносит анонимные данные в аккаунт пользователя.
+    Поддерживает перенос файлов из БД (старая логика) и из сессии Redis (новая логика).
+    """
+    # Если указан session_id, переносим все файлы из сессии
+    session_id = request.session_id
+    if not session_id:
+        if x_session_id:
+            session_id = x_session_id
+        else:
+            session_id = http_request.cookies.get("session_id")
+    
+    if session_id:
+        transferred_files = transfer_session_files_to_user(session_id, current_user.id, db, redis)
+        if transferred_files:
+            return {
+                "message": f"Успешно перенесено {len(transferred_files)} файлов",
+                "file_ids": transferred_files,
+                "file_id": transferred_files[0] if transferred_files else None
+            }
+    
+    # Старая логика: перенос файла из БД (для обратной совместимости)
     anonymous_file_id = request.anonymous_file_id
     if anonymous_file_id:
         # Переносим конкретный файл
@@ -182,7 +289,7 @@ async def transfer_anonymous_data(
             # Файл уже перенесен или не найден
             return {"message": "Файл не найден или уже перенесен", "file_id": None}
     
-    # Переносим все анонимные файлы пользователя (если есть временные данные)
+    # Нет данных для переноса
     return {"message": "Нет данных для переноса", "file_id": None}
 
 @router.get("/me", response_model=UserResponse)
@@ -191,7 +298,9 @@ async def get_me(current_user: User = Depends(get_current_user)):
     return UserResponse(
         id=current_user.id,
         email=current_user.email,
+        first_name=current_user.first_name,
         username=current_user.username,
         is_active=current_user.is_active,
+        subscription_type=current_user.subscription_type.value,
         created_at=current_user.created_at
     )

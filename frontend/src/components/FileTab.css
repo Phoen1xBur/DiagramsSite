@@ -1,30 +1,120 @@
 .file-tab {
   background: white;
-  padding: 15px;
-  border-radius: 8px;
-  margin: 10px 0;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  padding: 40px;
+  min-height: 400px;
 }
 
 .controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 15px;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.controls button {
+  padding: 12px 24px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.controls button.primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.controls button.primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+}
+
+.controls button:not(.primary) {
+  background: white;
+  color: #667eea;
+  border: 2px solid #667eea;
+}
+
+.controls button:not(.primary):hover {
+  background: #667eea;
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.3);
+}
+
+.controls button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .file-info {
-  margin-top: 15px;
-  padding: 10px;
-  background: #f9f9f9;
-  border-radius: 4px;
+  margin-top: 24px;
+  padding: 20px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-radius: 12px;
+  border-left: 4px solid #667eea;
+}
+
+.file-info p {
+  margin: 10px 0;
+  color: #495057;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.file-info p strong {
+  color: #667eea;
+  font-weight: 700;
+}
+
+.empty-file-state {
+  text-align: center;
+  padding: 80px 20px;
+  color: #6c757d;
+}
+
+.empty-file-icon {
+  font-size: 80px;
+  margin-bottom: 24px;
+  opacity: 0.7;
+  animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.empty-file-state h3 {
+  font-size: 28px;
+  font-weight: 700;
+  color: #495057;
+  margin-bottom: 12px;
+}
+
+.empty-file-state p {
+  font-size: 16px;
+  color: #6c757d;
+  line-height: 1.6;
+  max-width: 500px;
+  margin: 0 auto 32px;
 }
 
 .error {
-  color: red;
-  margin-top: 10px;
-  padding: 10px;
-  background: #ffebee;
-  border-radius: 4px;
+  color: #dc3545;
+  margin-top: 16px;
+  padding: 16px 20px;
+  background: #fff5f5;
+  border-radius: 10px;
+  border-left: 4px solid #dc3545;
+  font-weight: 500;
 }
 

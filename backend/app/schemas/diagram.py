@@ -16,8 +16,8 @@ class DataFileResponse(BaseModel):
     file_type: str
     columns: List[str]
     data: List[dict]
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True

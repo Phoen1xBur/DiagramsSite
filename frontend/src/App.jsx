@@ -75,23 +75,34 @@ function AppContent() {
           }
         }
       } catch (err) {
-        // Токен невалидный или пользователь не найден - очищаем данные
-        console.error('Токен невалидный или пользователь не найден:', err)
-        // Очищаем токен и данные пользователя
-        setUser(null)
-        clearUserToken()
-        clearAnonymousData()
-        delete apiClient.defaults.headers.common['Authorization']
-        // Очищаем данные
-        setCurrentData(null)
-        setColumns([])
-        setFileId(null)
-        // Загружаем анонимные данные
-        const saved = loadAnonymousData()
-        if (saved) {
-          setCurrentData(saved.data)
-          setColumns(saved.columns)
-          setFileId(saved.fileId)
+        // Очищаем токен только при 401 (Unauthorized), а не при всех ошибках
+        // Ошибки валидации (422) и другие ошибки не должны вызывать выход из аккаунта
+        if (err.response?.status === 401) {
+          console.error('Токен невалидный или пользователь не найден:', err)
+          // Очищаем токен и данные пользователя только при 401
+          setUser(null)
+          clearUserToken()
+          delete apiClient.defaults.headers.common['Authorization']
+          
+          // Сначала загружаем анонимные данные (до очистки)
+          const saved = loadAnonymousData()
+          if (saved) {
+            // Восстанавливаем анонимные данные
+            setCurrentData(saved.data)
+            setColumns(saved.columns)
+            setFileId(saved.fileId)
+          } else {
+            // Очищаем данные только если нет сохраненных анонимных данных
+            setCurrentData(null)
+            setColumns([])
+            setFileId(null)
+          }
+          // Не очищаем анонимные данные здесь - они могут быть нужны пользователю
+          // Очистка произойдет только при успешном входе или явном выходе
+        } else {
+          // Для других ошибок (422, 500 и т.д.) просто логируем, но не выходим из аккаунта
+          console.error('Ошибка при загрузке данных пользователя:', err)
+          // Оставляем пользователя залогиненным, но не обновляем данные
         }
         return
       }

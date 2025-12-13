@@ -31,3 +31,4 @@ class Token(BaseModel):
 
 class TransferAnonymousDataRequest(BaseModel):
     anonymous_file_id: Optional[int] = None
+    session_id: Optional[str] = None  # Для переноса файлов из сессии Redis

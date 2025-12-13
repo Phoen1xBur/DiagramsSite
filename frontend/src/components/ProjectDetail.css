@@ -1,35 +1,126 @@
 .project-detail {
-  padding: 20px;
+  padding: 0;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
 }
 
 .project-header {
-  margin-bottom: 20px;
-  padding-bottom: 15px;
-  border-bottom: 2px solid #e0e0e0;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 32px 40px;
+  color: white;
+  margin-bottom: 0;
+  border-bottom: none;
 }
 
 .back-btn {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.2);
   border: none;
-  color: #667eea;
+  color: white;
   cursor: pointer;
-  padding: 5px 0;
-  margin-bottom: 10px;
+  padding: 8px 16px;
+  margin-bottom: 16px;
   font-size: 14px;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  backdrop-filter: blur(10px);
+  font-weight: 500;
 }
 
 .back-btn:hover {
-  text-decoration: underline;
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateX(-2px);
+  text-decoration: none;
 }
 
 .project-header h2 {
-  margin: 0 0 5px 0;
-  color: #333;
+  margin: 0 0 8px 0;
+  color: white;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
 }
 
 .project-description {
-  margin: 5px 0 0 0;
-  color: #666;
-  font-size: 14px;
+  margin: 8px 0 0 0;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.tab-container {
+  display: flex;
+  gap: 0;
+  margin-bottom: 0;
+  background: #f8f9fa;
+  padding: 0 40px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.tab-button {
+  padding: 16px 28px;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+  color: #6c757d;
+  transition: all 0.3s ease;
+  margin: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tab-button::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  transform: scaleX(0);
+  transition: transform 0.3s ease;
+}
+
+.tab-button:hover {
+  color: #667eea;
+  background: rgba(102, 126, 234, 0.05);
+  transform: none;
+}
+
+.tab-button.active {
+  color: #667eea;
+  background: rgba(102, 126, 234, 0.08);
+}
+
+.tab-button.active::before {
+  transform: scaleX(1);
+}
+
+/* Стили для контента табов */
+.project-detail > div:not(.project-header):not(.tab-container) {
+  padding: 0;
+}
+
+/* Плавные переходы для контента табов */
+.project-detail > * {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
