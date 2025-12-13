@@ -33,7 +33,7 @@ function ProjectDetail() {
       setProject(response.data)
     } catch (err) {
       alert('Ошибка загрузки проекта: ' + (err.response?.data?.detail || err.message))
-      navigate('/dashboard')
+      navigate('/')
     } finally {
       setLoading(false)
     }
@@ -67,7 +67,7 @@ function ProjectDetail() {
     return (
       <div className="project-detail">
         <p>Проект не найден</p>
-        <button onClick={() => navigate('/dashboard')}>Вернуться к проектам</button>
+        <button onClick={() => navigate('/')}>Вернуться на главную</button>
       </div>
     )
   }
@@ -76,8 +76,8 @@ function ProjectDetail() {
     <div className="project-detail">
       <div className="project-header">
         <div>
-          <button className="back-btn" onClick={() => navigate('/dashboard')}>
-            ← Назад к проектам
+          <button className="back-btn" onClick={() => navigate('/')}>
+            ← Назад на главную
           </button>
           <h2>{project.name}</h2>
           {project.description && <p className="project-description">{project.description}</p>}

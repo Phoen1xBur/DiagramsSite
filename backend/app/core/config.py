@@ -14,7 +14,6 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173", "http://localhost:80"]
     
     # App
-    DEBUG: bool = False
     SECRET_KEY: str = "your-secret-key-change-in-production"
     
     class Config:
