@@ -154,6 +154,9 @@
 
 .project-header-content {
   flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .project-header h2 {

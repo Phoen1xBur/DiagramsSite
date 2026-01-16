@@ -148,7 +148,7 @@ function ProjectDetail() {
         </button>
         <div className="project-header-content">
           {editingProjectName ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', maxWidth: '500px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '100%', maxWidth: '500px', justifyContent: 'center', margin: '0 auto' }}>
               <input
                 type="text"
                 value={projectName}
@@ -168,13 +168,14 @@ function ProjectDetail() {
                   borderRadius: '6px',
                   fontSize: '20px',
                   fontWeight: '600',
-                  flex: 1
+                  flex: 1,
+                  maxWidth: '400px'
                 }}
                 autoFocus
               />
             </div>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'center' }}>
               <h2 style={{ margin: 0 }}>
                 {project.name}
               </h2>
