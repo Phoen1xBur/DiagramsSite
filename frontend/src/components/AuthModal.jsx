@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import apiClient from '../api/client'
 import { saveUserToken, saveUserData } from '../utils/storage'
 import './AuthModal.css'
@@ -12,6 +12,50 @@ function AuthModal({ isOpen, onClose, onLogin }) {
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const overlayRef = useRef(null)
+  
+  // Предотвращаем закрытие модального окна при загрузке или если оно только что открылось
+  const handleOverlayClick = (e) => {
+    // Закрываем только если клик был именно на overlay, а не на дочерний элемент
+    // и если не идет загрузка
+    if (e.target === overlayRef.current && !loading) {
+      onClose()
+    }
+  }
+  
+  // Сбрасываем форму при открытии модального окна
+  useEffect(() => {
+    if (isOpen) {
+      setFormData({
+        email: '',
+        first_name: '',
+        password: ''
+      })
+      setError('')
+      setLoading(false)
+      setIsLogin(true)
+    }
+  }, [isOpen])
+  
+  // Обработка клавиши Escape для закрытия модального окна
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape' && isOpen && !loading) {
+        onClose()
+      }
+    }
+    
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape)
+      // Предотвращаем прокрутку фона при открытом модальном окне
+      document.body.style.overflow = 'hidden'
+    }
+    
+    return () => {
+      document.removeEventListener('keydown', handleEscape)
+      document.body.style.overflow = 'unset'
+    }
+  }, [isOpen, loading, onClose])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -79,6 +123,17 @@ function AuthModal({ isOpen, onClose, onLogin }) {
           saveUserToken(loginResponse.data.access_token)
           saveUserData(loginResponse.data.user)
           
+          // Создаем проект по умолчанию для нового пользователя
+          try {
+            await apiClient.post('/projects/', {
+              name: 'Мой первый проект',
+              description: 'Проект создан автоматически при регистрации'
+            })
+          } catch (projectErr) {
+            console.error('Ошибка создания проекта по умолчанию:', projectErr)
+            // Не критично, продолжаем
+          }
+          
           // Вызываем onLogin с обработкой ошибок
           try {
             await onLogin(loginResponse.data.user)
@@ -110,10 +165,10 @@ function AuthModal({ isOpen, onClose, onLogin }) {
         }
       }
     } catch (err) {
-      // Обрабатываем различные типы ошибок
-      let errorMessage = 'Ошибка при выполнении операции'
+      // Используем userMessage из interceptor если есть, иначе обрабатываем вручную
+      let errorMessage = err.userMessage || 'Ошибка при выполнении операции'
       
-      if (err.response) {
+      if (!err.userMessage && err.response) {
         // Ошибка от сервера
         const status = err.response.status
         const data = err.response.data
@@ -138,10 +193,15 @@ function AuthModal({ isOpen, onClose, onLogin }) {
           }
         } else if (status === 401) {
           errorMessage = data.detail || 'Неверный email/логин или пароль'
+        } else if (status === 404) {
+          // 404 на auth endpoints - неправильный логин/пароль
+          errorMessage = 'Неверный email/логин или пароль'
+        } else if (status >= 500 && status < 600) {
+          errorMessage = 'Проблема на стороне сервера. Попробуйте позже.'
         } else {
           errorMessage = data.detail || `Ошибка ${status}`
         }
-      } else if (err.message) {
+      } else if (!err.userMessage && err.message) {
         errorMessage = err.message
       }
       
@@ -155,9 +215,26 @@ function AuthModal({ isOpen, onClose, onLogin }) {
   if (!isOpen) return null
 
   return (
-    <div className="auth-modal-overlay" onClick={onClose}>
+    <div 
+      className="auth-modal-overlay" 
+      ref={overlayRef}
+      onClick={handleOverlayClick}
+      onMouseDown={(e) => {
+        // Предотвращаем закрытие при клике на overlay во время загрузки
+        if (loading) {
+          e.preventDefault()
+        }
+      }}
+    >
       <div className="auth-modal" onClick={(e) => e.stopPropagation()}>
-        <button className="auth-modal-close" onClick={onClose}>×</button>
+        <button 
+          className="auth-modal-close" 
+          onClick={onClose}
+          disabled={loading}
+          style={{ opacity: loading ? 0.5 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}
+        >
+          ×
+        </button>
         <h2>{isLogin ? 'Вход' : 'Регистрация'}</h2>
         
         {error && <div className="auth-error">{error}</div>}

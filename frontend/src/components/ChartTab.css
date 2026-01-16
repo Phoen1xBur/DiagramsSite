@@ -12,27 +12,50 @@
 
 .columns-list {
   margin: 10px 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .column-label {
   display: flex;
   align-items: center;
   margin: 8px 0;
-  padding: 10px;
+  padding: 8px 10px;
   background: #f9f9f9;
   border-radius: 6px;
-  cursor: pointer;
-  transition: background-color 0.2s;
+  transition: background-color 0.2s, opacity 0.2s, border 0.2s, transform 0.2s;
+  gap: 8px;
+  position: relative;
 }
 
 .column-label:hover {
   background: #e8f5e9;
 }
 
+.column-label.dragging {
+  opacity: 0.5;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.column-label.preview {
+  background: #e8f5e9;
+}
+
+.column-label label {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.column-label:hover label {
+  background: transparent;
+}
+
 .column-label input[type="checkbox"] {
-  width: 20px;
-  height: 20px;
-  margin-right: 10px;
+  width: 14px;
+  height: 14px;
+  margin-right: 8px;
   cursor: pointer;
   accent-color: #4CAF50;
   flex-shrink: 0;
@@ -43,10 +66,67 @@
   margin-right: 8px;
 }
 
+.drag-handle {
+  cursor: grab;
+  color: #999;
+  font-size: 16px;
+  padding: 4px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  transition: color 0.2s;
+  flex-shrink: 0;
+}
+
+.drag-handle:hover {
+  color: #4CAF50;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.drag-handle span {
+  line-height: 1;
+  letter-spacing: -2px;
+  margin: 0;
+}
+
+.move-buttons {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .move-btn {
   padding: 2px 6px;
-  font-size: 10px;
-  margin-left: 5px;
+  font-size: 12px;
+  background: transparent;
+  color: #666;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.move-btn:hover:not(:disabled) {
+  background: #4CAF50;
+  color: white;
+  border-color: #4CAF50;
+}
+
+.move-btn:disabled {
+  color: #ccc;
+  border-color: #eee;
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .zoom-controls {
@@ -148,7 +228,7 @@
   align-items: center;
   margin: 8px 0;
   cursor: pointer;
-  padding: 8px;
+  padding-left: 8px;
   border-radius: 4px;
   transition: background-color 0.2s;
 }

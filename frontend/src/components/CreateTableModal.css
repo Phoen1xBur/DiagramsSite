@@ -1,0 +1,191 @@
+.create-table-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.create-table-modal {
+  background: white;
+  border-radius: 12px;
+  padding: 30px;
+  max-width: 500px;
+  width: 90%;
+  position: relative;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.create-table-modal-close {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  background: none;
+  border: none;
+  font-size: 28px;
+  cursor: pointer;
+  color: #666;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s;
+}
+
+.create-table-modal-close:hover {
+  background: #f0f0f0;
+  color: #000;
+}
+
+.create-table-modal h2 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  color: #212529;
+  font-size: 24px;
+}
+
+.create-table-modal p {
+  margin-bottom: 20px;
+  color: #666;
+  font-size: 14px;
+}
+
+.columns-list {
+  margin-bottom: 20px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.column-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  margin-bottom: 8px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.column-item:hover {
+  border-color: #4CAF50;
+  background: #f0f7f0;
+}
+
+.column-name {
+  flex: 1;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.2s;
+  font-size: 15px;
+  font-weight: 500;
+  color: #212529;
+}
+
+.column-name:hover {
+  background: #e9ecef;
+}
+
+.column-edit-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 2px solid #4CAF50;
+  border-radius: 6px;
+  font-size: 15px;
+  font-weight: 500;
+  outline: none;
+}
+
+.delete-column-btn {
+  background: #ff4444;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.delete-column-btn:hover {
+  background: #cc0000;
+  transform: scale(1.1);
+}
+
+.modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.add-column-btn {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.3s;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.add-column-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.cancel-btn,
+.create-btn {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+  transition: all 0.3s;
+}
+
+.cancel-btn {
+  background: #e9ecef;
+  color: #495057;
+}
+
+.cancel-btn:hover {
+  background: #dee2e6;
+}
+
+.create-btn {
+  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+  color: white;
+  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+}
+
+.create-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(76, 175, 80, 0.4);
+}

@@ -17,25 +17,42 @@ export default defineConfig({
           'diagrams.chandraloca.ru',
           '.chandraloca.ru' // В PROD режиме разрешаем домен
         ],
-    hmr: isDebug 
-      ? {
-          // В DEBUG режиме HMR работает напрямую
-          host: 'localhost',
-          protocol: 'ws',
-          port: 5173
-        }
-      : {
-          // В PROD режиме HMR работает через nginx прокси
-          host: 'diagrams.chandraloca.ru',
-          protocol: 'wss',
-          clientPort: 443,
-          overlay: false, // Отключаем overlay при ошибках
-          reconnect: 5
-        },
+    // Настройка HMR в зависимости от режима
+    hmr: false, // Полностью отключаем HMR для избежания автоматических перезагрузок
+    // В production через nginx HMR не нужен, так как используется build версия
     watch: {
-      usePolling: true,
-      interval: isDebug ? 500 : 1000 // В DEBUG режиме более частый опрос
+      // Отключаем polling - используем нативные события файловой системы
+      usePolling: false,
+      // Отключаем автоматическую перезагрузку при изменении файлов
+      ignored: ['**/node_modules/**', '**/.git/**']
     }
+  },
+  // Настройки для production build
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+    sourcemap: false, // Отключаем sourcemap в production для безопасности
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true, // Удаляем console.log в production
+        drop_debugger: true
+      }
+    },
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'plotly-vendor': ['plotly.js', 'react-plotly.js']
+        }
+      }
+    }
+  },
+  // Настройки preview сервера (для production)
+  preview: {
+    host: '0.0.0.0',
+    port: 5173,
+    strictPort: true
   }
 })
 

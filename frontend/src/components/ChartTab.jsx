@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react'
 import apiClient from '../api/client'
+import { useNotification } from '../contexts/NotificationContext'
 import './ChartTab.css'
 
 function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
+  const { showNotification } = useNotification()
   const [selectedColumns, setSelectedColumns] = useState([])
+  const [columnOrder, setColumnOrder] = useState([]) // Порядок всех столбцов
   const [valueColumn, setValueColumn] = useState('')
   const [showWhite, setShowWhite] = useState(true)
   const [useGradient, setUseGradient] = useState(true)
@@ -12,10 +15,16 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
   const [error, setError] = useState(null)
   const [savedDiagramId, setSavedDiagramId] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [draggedColumn, setDraggedColumn] = useState(null)
+  const [dragOverIndex, setDragOverIndex] = useState(null)
+  const [showPreview, setShowPreview] = useState(false)
   const chartContainerRef = useRef(null)
+  const dragOverTimeoutRef = useRef(null)
 
   useEffect(() => {
     if (columns && columns.length > 0) {
+      // Инициализируем порядок столбцов из исходного массива
+      setColumnOrder([...columns])
       // По умолчанию выбираем первые 3 столбца
       setSelectedColumns(columns.slice(0, Math.min(3, columns.length)))
     }
@@ -23,7 +32,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
 
   // Восстанавливаем сохраненные настройки диаграммы из localStorage (без HTML)
   useEffect(() => {
-    if (fileId) {
+    if (fileId && columns && columns.length > 0) {
       const saved = localStorage.getItem(`chart_settings_${fileId}`)
       if (saved) {
         try {
@@ -33,20 +42,25 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
           setShowWhite(chartData.showWhite !== undefined ? chartData.showWhite : true)
           setUseGradient(chartData.useGradient !== undefined ? chartData.useGradient : true)
           setSavedDiagramId(chartData.diagramId || null)
+          // Восстанавливаем порядок столбцов, если он сохранен
+          if (chartData.columnOrder && chartData.columnOrder.length === columns.length) {
+            setColumnOrder(chartData.columnOrder)
+          }
           // HTML не сохраняем, он будет сгенерирован заново при необходимости
         } catch (e) {
           console.error('Ошибка восстановления настроек диаграммы:', e)
         }
       }
     }
-  }, [fileId])
+  }, [fileId, columns])
 
   // Сохраняем только настройки диаграммы в localStorage (без HTML, чтобы не превысить квоту)
   useEffect(() => {
-    if (fileId) {
+    if (fileId && columnOrder.length > 0) {
       try {
         localStorage.setItem(`chart_settings_${fileId}`, JSON.stringify({
           selectedColumns,
+          columnOrder,
           valueColumn,
           showWhite,
           useGradient,
@@ -57,7 +71,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
         console.warn('Не удалось сохранить настройки диаграммы в localStorage:', e)
       }
     }
-  }, [selectedColumns, valueColumn, showWhite, useGradient, savedDiagramId, fileId])
+  }, [selectedColumns, columnOrder, valueColumn, showWhite, useGradient, savedDiagramId, fileId])
 
   const handleColumnToggle = (col) => {
     setSelectedColumns(prev => {
@@ -70,22 +84,165 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
   }
 
   const handleMoveColumn = (col, direction) => {
-    const idx = selectedColumns.indexOf(col)
-    if ((direction < 0 && idx === 0) || (direction > 0 && idx === selectedColumns.length - 1)) return
+    const idx = columnOrder.indexOf(col)
+    if (idx === -1) return
+    // Проверяем границы
+    if ((direction < 0 && idx === 0) || (direction > 0 && idx === columnOrder.length - 1)) return
     
-    const newColumns = [...selectedColumns]
-    ;[newColumns[idx], newColumns[idx + direction]] = [newColumns[idx + direction], newColumns[idx]]
-    setSelectedColumns(newColumns)
+    const newOrder = [...columnOrder]
+    const newIdx = idx + direction
+    ;[newOrder[idx], newOrder[newIdx]] = [newOrder[newIdx], newOrder[idx]]
+    setColumnOrder(newOrder)
+  }
+
+  const handleDragStart = (e, col) => {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', col)
+    setDraggedColumn(col)
+    setShowPreview(false)
+    setDragOverIndex(null)
+  }
+
+  const handleDragEnd = (e) => {
+    if (dragOverTimeoutRef.current) {
+      clearTimeout(dragOverTimeoutRef.current)
+      dragOverTimeoutRef.current = null
+    }
+    setDraggedColumn(null)
+    setDragOverIndex(null)
+    setShowPreview(false)
+  }
+
+  // Вычисляем визуальный порядок при перетаскивании
+  const getVisualOrder = () => {
+    if (!draggedColumn) {
+      return columnOrder.map((col, idx) => ({ col, idx, isDragged: false }))
+    }
+    
+    const draggedIdx = columnOrder.indexOf(draggedColumn)
+    if (draggedIdx === -1) {
+      return columnOrder.map((col, idx) => ({ col, idx, isDragged: false }))
+    }
+    
+    // Если показываем превью и есть dragOverIndex
+    if (showPreview && dragOverIndex !== null && draggedIdx !== dragOverIndex) {
+      // Вычисляем новый порядок
+      const newOrder = [...columnOrder]
+      newOrder.splice(draggedIdx, 1)
+      newOrder.splice(dragOverIndex, 0, draggedColumn)
+      
+      // Создаем маппинг старых индексов на новые
+      const visualOrder = []
+      for (let i = 0; i < columnOrder.length; i++) {
+        const col = columnOrder[i]
+        const newIdx = newOrder.indexOf(col)
+        visualOrder.push({ col, idx: newIdx, isDragged: col === draggedColumn })
+      }
+      
+      return visualOrder
+    }
+    
+    // Иначе показываем все элементы, перетаскиваемый остается на своей позиции или на dragOverIndex
+    return columnOrder.map((col, idx) => ({
+      col,
+      idx: col === draggedColumn && dragOverIndex !== null ? dragOverIndex : idx,
+      isDragged: col === draggedColumn
+    }))
+  }
+
+  const handleDragOver = (e, targetIdx) => {
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'move'
+    
+    if (!draggedColumn) return
+    
+    // Очищаем предыдущий таймер
+    if (dragOverTimeoutRef.current) {
+      clearTimeout(dragOverTimeoutRef.current)
+      dragOverTimeoutRef.current = null
+    }
+    
+    // Если индекс изменился, сбрасываем превью
+    if (dragOverIndex !== targetIdx) {
+      setDragOverIndex(targetIdx)
+      setShowPreview(false)
+      
+      // Устанавливаем новый таймер для показа превью
+      const currentTargetIdx = targetIdx
+      dragOverTimeoutRef.current = setTimeout(() => {
+        // Проверяем, что мы все еще на том же элементе
+        setShowPreview(prev => {
+          if (dragOverIndex === currentTargetIdx && draggedColumn) {
+            return true
+          }
+          return prev
+        })
+      }, 500) // 0.5 секунды задержка
+    }
+  }
+
+  const handleDragLeave = (e) => {
+    // Проверяем, что мы действительно покинули элемент
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX
+    const y = e.clientY
+    
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      if (dragOverTimeoutRef.current) {
+        clearTimeout(dragOverTimeoutRef.current)
+        dragOverTimeoutRef.current = null
+      }
+      setDragOverIndex(null)
+      setShowPreview(false)
+    }
+  }
+
+  const handleDrop = (e, targetCol) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    if (dragOverTimeoutRef.current) {
+      clearTimeout(dragOverTimeoutRef.current)
+      dragOverTimeoutRef.current = null
+    }
+    
+    const draggedCol = e.dataTransfer.getData('text/plain')
+    
+    if (!draggedCol || draggedCol === targetCol) {
+      setDraggedColumn(null)
+      setDragOverIndex(null)
+      setShowPreview(false)
+      return
+    }
+    
+    const draggedIdx = columnOrder.indexOf(draggedCol)
+    const targetIdx = columnOrder.indexOf(targetCol)
+    
+    if (draggedIdx === -1 || targetIdx === -1 || draggedIdx === targetIdx) {
+      setDraggedColumn(null)
+      setDragOverIndex(null)
+      setShowPreview(false)
+      return
+    }
+    
+    const newOrder = [...columnOrder]
+    newOrder.splice(draggedIdx, 1)
+    newOrder.splice(targetIdx, 0, draggedCol)
+    setColumnOrder(newOrder)
+    setDraggedColumn(null)
+    setDragOverIndex(null)
+    setShowPreview(false)
   }
 
   const handleRenderChart = async () => {
     if (!data || data.length === 0) {
-      alert('Нет данных для построения диаграммы!')
+      showNotification('Нет данных для построения диаграммы!', 'warning')
       return
     }
 
     if (selectedColumns.length === 0) {
-      alert('Выберите хотя бы один столбец для иерархии!')
+      showNotification('Выберите хотя бы один столбец для иерархии!', 'warning')
       return
     }
 
@@ -118,13 +275,13 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
       setError(errorMessage)
       setChartHtml('')
       setLoading(false)
-      alert('Ошибка генерации диаграммы: ' + errorMessage)
+      showNotification('Ошибка генерации диаграммы: ' + errorMessage, 'error')
     }
   }
 
   const handleSaveDiagram = async () => {
     if (!fileId || !user || !chartHtml) {
-      alert('Для сохранения необходимо построить диаграмму и быть авторизованным пользователем')
+      showNotification('Для сохранения необходимо построить диаграмму и быть авторизованным пользователем', 'warning')
       return
     }
 
@@ -156,9 +313,9 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
       if (onChartSaved) {
         onChartSaved()
       }
-      alert('Диаграмма успешно сохранена!')
+      showNotification('Диаграмма успешно сохранена!', 'success')
     } catch (err) {
-      alert('Ошибка сохранения диаграммы: ' + (err.response?.data?.detail || err.message))
+      showNotification('Ошибка сохранения диаграммы: ' + (err.response?.data?.detail || err.message), 'error')
     } finally {
       setIsSaving(false)
     }
@@ -216,37 +373,110 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
       <div className="chart-controls">
         <p><strong>Столбцы для иерархии (порядок важен):</strong></p>
         <div className="columns-list">
-          {columns.map((col, idx) => (
-            <label key={col} className="column-label" onClick={() => handleColumnToggle(col)}>
-              <input
-                type="checkbox"
-                checked={selectedColumns.includes(col)}
-                onChange={() => handleColumnToggle(col)}
-                onClick={(e) => e.stopPropagation()}
-              />
-              <span>{col}</span>
-              {selectedColumns.includes(col) && (
-                <>
-                  <button
-                    type="button"
-                    className="move-btn"
-                    onClick={() => handleMoveColumn(col, -1)}
-                    disabled={selectedColumns.indexOf(col) === 0}
+          {/* Показываем все столбцы в визуальном порядке при перетаскивании */}
+          {getVisualOrder()
+            .sort((a, b) => a.idx - b.idx)
+            .map(({ col, isDragged }) => {
+              const originalIdx = columnOrder.indexOf(col)
+              const visualIdx = showPreview && dragOverIndex !== null && draggedColumn && isDragged
+                ? dragOverIndex
+                : (isDragged && dragOverIndex !== null ? dragOverIndex : originalIdx)
+              
+              return (
+                <div 
+                  key={col} 
+                  className={`column-label ${isDragged ? 'dragging' : ''} ${showPreview && !isDragged ? 'preview' : ''}`}
+                  style={{
+                    order: visualIdx,
+                    transition: showPreview ? 'all 0.3s ease' : (isDragged ? 'none' : 'all 0.2s ease')
+                  }}
+                  onDragOver={(e) => {
+                    if (draggedColumn && !isDragged) {
+                      handleDragOver(e, originalIdx)
+                    }
+                  }}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => {
+                    if (draggedColumn) {
+                      handleDrop(e, col)
+                    }
+                  }}
+                  onClick={(e) => {
+                    // Если клик был по кнопке или drag handle, не переключаем
+                    const target = e.target
+                    if (target.tagName === 'BUTTON' || 
+                        target.classList.contains('drag-handle') || 
+                        target.closest('button') || 
+                        target.closest('.drag-handle')) {
+                      return
+                    }
+                    // Если клик был по label, input или span - переключаем чекбокс
+                    handleColumnToggle(col)
+                  }}
+                >
+                  <label 
+                    style={{ display: 'flex', alignItems: 'center', flex: 1, cursor: 'pointer', userSelect: 'none', background: 'transparent' }}
                   >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    className="move-btn"
-                    onClick={() => handleMoveColumn(col, 1)}
-                    disabled={selectedColumns.indexOf(col) === selectedColumns.length - 1}
+                    <input
+                      type="checkbox"
+                      checked={selectedColumns.includes(col)}
+                      onChange={() => handleColumnToggle(col)}
+                      disabled={isDragged}
+                    />
+                    <span>{col}</span>
+                  </label>
+                  <div className="move-buttons">
+                    <button
+                      type="button"
+                      className="move-btn move-btn-up"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        handleMoveColumn(col, -1)
+                      }}
+                      disabled={originalIdx === 0 || isDragged}
+                      title="Переместить вверх"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="move-btn move-btn-down"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        handleMoveColumn(col, 1)
+                      }}
+                      disabled={originalIdx === columnOrder.length - 1 || isDragged}
+                      title="Переместить вниз"
+                    >
+                      ↓
+                    </button>
+                  </div>
+                  <div 
+                    className="drag-handle"
+                    draggable={!isDragged}
+                    onDragStart={(e) => {
+                      if (!isDragged) {
+                        e.stopPropagation()
+                        handleDragStart(e, col)
+                      }
+                    }}
+                    onDragEnd={(e) => {
+                      e.stopPropagation()
+                      handleDragEnd(e)
+                    }}
+                    onMouseDown={(e) => {
+                      // Предотвращаем клик на родительский элемент при начале drag
+                      e.stopPropagation()
+                    }}
+                    title="Перетащите для изменения порядка"
                   >
-                    ↓
-                  </button>
-                </>
-              )}
-            </label>
-          ))}
+                    <span>⋮⋮</span>
+                  </div>
+                </div>
+              )
+            })}
         </div>
 
         <p><strong>Столбец значений (процент выполнения):</strong></p>
@@ -261,22 +491,22 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
         </select>
 
         <div style={{ marginTop: '15px' }}>
-          <label>
+          <label style={{ cursor: 'pointer', userSelect: 'none' }}>
             <input
               type="checkbox"
               checked={showWhite}
               onChange={(e) => setShowWhite(e.target.checked)}
             />
-            Показывать непроработанные сектора белым
+            <span>Показывать непроработанные сектора белым</span>
           </label>
           <br />
-          <label>
+          <label style={{ cursor: 'pointer', userSelect: 'none' }}>
             <input
               type="checkbox"
               checked={useGradient}
               onChange={(e) => setUseGradient(e.target.checked)}
             />
-            Использовать градиент (внешние сектора ярче)
+            <span>Использовать градиент (внешние сектора ярче)</span>
           </label>
         </div>
 

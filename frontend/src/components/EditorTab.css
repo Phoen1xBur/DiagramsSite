@@ -32,33 +32,55 @@
 }
 
 .modified-indicator {
-  color: #ff9800;
+  color: #ff6b00;
   font-size: 14px;
   font-weight: 600;
-  padding: 6px 12px;
+  padding: 8px 16px;
   background: #fff3e0;
   border-radius: 8px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  border: 2px solid #ff9800;
 }
 
 .modified-indicator::before {
   content: '●';
-  font-size: 12px;
+  font-size: 16px;
+  color: #ff6b00;
+  animation: blink 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+@keyframes blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }
 
 .save-btn {
   background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
   color: white;
   border: none;
-  padding: 12px 24px;
+  padding: 14px 28px;
   border-radius: 10px;
   cursor: pointer;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   transition: all 0.3s ease;
   box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+  margin-left: auto;
 }
 
 .save-btn:hover:not(:disabled) {
@@ -76,6 +98,16 @@
   margin-bottom: 20px;
   display: flex;
   gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.editor-controls-right {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-left: auto;
 }
 
 .editor-controls button {
@@ -100,6 +132,10 @@
   overflow-x: auto;
   max-height: 70vh;
   overflow-y: auto;
+  margin: 20px;
+  padding: 20px;
+  background: #fafafa;
+  border-radius: 8px;
   border: 1px solid #e9ecef;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
@@ -189,6 +225,34 @@
   gap: 8px;
 }
 
+.column-name-editable {
+  flex: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.column-name-editable:hover {
+  background: #e9ecef;
+}
+
+.column-name-edit-input {
+  flex: 1;
+  padding: 4px 8px;
+  border: 2px solid #4CAF50;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  outline: none;
+  background: white;
+  color: #495057;
+  font-family: inherit;
+}
+
 .delete-column-btn-wrapper,
 .delete-row-btn-wrapper {
   width: 20px;
@@ -205,8 +269,7 @@
   height: 24px;
 }
 
-.delete-column-btn,
-.delete-row-btn {
+.delete-column-btn {
   background: #f44336;
   color: white;
   border: none;
@@ -219,20 +282,46 @@
   align-items: center;
   justify-content: center;
   padding: 0;
-  transition: opacity 0.2s, transform 0.2s;
+  transition: opacity 0.2s, transform 0.2s, background 0.2s;
   flex-shrink: 0;
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  opacity: 0;
-  pointer-events: none;
+  position: relative;
+  opacity: 0.8;
+  pointer-events: all;
 }
 
-.delete-column-btn-wrapper:hover .delete-column-btn,
+.delete-row-btn {
+  background: #f44336;
+  color: white;
+  border: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: opacity 0.2s, transform 0.2s, background 0.2s;
+  flex-shrink: 0;
+  position: relative;
+  opacity: 0.8;
+  pointer-events: all;
+}
+
+.delete-column-btn-wrapper:hover .delete-column-btn {
+  opacity: 1;
+  transform: scale(1.1);
+}
+
 .delete-row-btn-wrapper:hover .delete-row-btn {
   opacity: 1;
-  pointer-events: all;
+  transform: scale(1.1);
+}
+
+.delete-row-btn:hover {
+  background: #d32f2f;
+  transform: scale(1.1);
 }
 
 .delete-column-btn:hover,

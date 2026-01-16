@@ -20,10 +20,8 @@ COPY . .
 # Создание директории для загрузок
 RUN mkdir -p /tmp/uploads
 
-# Копирование entrypoint скрипта
-COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
-
 # Порт для FastAPI
 EXPOSE 8000
 
+# Команда по умолчанию
+CMD ["python3", "/app/start.py"]

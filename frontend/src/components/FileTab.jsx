@@ -1,10 +1,14 @@
 import React, { useState, useRef } from 'react'
 import apiClient from '../api/client'
+import CreateTableModal from './CreateTableModal'
+import { useNotification } from '../contexts/NotificationContext'
 import './FileTab.css'
 
-function FileTab({ onFileLoaded, currentData, columns, fileId, onFileLoadedCallback, projectId }) {
+function FileTab({ onFileLoaded, currentData, columns, fileId, onFileLoadedCallback, projectId, onSwitchToEditor }) {
+  const { showNotification } = useNotification()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [showCreateModal, setShowCreateModal] = useState(false)
 
   const handleFileUpload = async (event) => {
     const file = event.target.files[0]
@@ -24,30 +28,21 @@ function FileTab({ onFileLoaded, currentData, columns, fileId, onFileLoadedCallb
 
       const response = await apiClient.post(url, formData)
 
-      onFileLoaded(response.data.data, response.data.columns, response.data.id)
+      onFileLoaded(response.data.data, response.data.columns, response.data.id, response.data.original_filename)
       if (onFileLoadedCallback) {
         onFileLoadedCallback()
       }
-      alert('Файл успешно загружен и сохранен!')
+      showNotification('Файл успешно загружен и сохранен!', 'success')
     } catch (err) {
       setError(err.response?.data?.detail || 'Ошибка загрузки файла')
-      alert('Ошибка загрузки файла: ' + (err.response?.data?.detail || err.message))
+      showNotification('Ошибка загрузки файла: ' + (err.response?.data?.detail || err.message), 'error')
     } finally {
       setLoading(false)
       event.target.value = '' // Сброс input
     }
   }
 
-  const handleCreateNewTable = () => {
-    const cols = prompt('Введите названия столбцов через запятую:', 'Категория,Подкатегория,Значение')
-    if (!cols) return
-
-    const columnNames = cols.split(',').map(c => c.trim()).filter(c => c)
-    if (columnNames.length === 0) {
-      alert('Нужно указать хотя бы один столбец!')
-      return
-    }
-
+  const handleCreateNewTable = (columnNames, fileName) => {
     const data = []
     for (let i = 0; i < 5; i++) {
       const row = {}
@@ -55,15 +50,20 @@ function FileTab({ onFileLoaded, currentData, columns, fileId, onFileLoadedCallb
       data.push(row)
     }
 
-    onFileLoaded(data, columnNames, null)
+    onFileLoaded(data, columnNames, null, fileName)
     if (onFileLoadedCallback) {
       onFileLoadedCallback()
+    }
+    
+    // Переключаемся на вкладку редактора
+    if (onSwitchToEditor) {
+      onSwitchToEditor()
     }
   }
 
   const handleExportToExcel = async () => {
     if (!currentData || currentData.length === 0) {
-      alert('Нет данных для экспорта!')
+      showNotification('Нет данных для экспорта!', 'warning')
       return
     }
 
@@ -93,9 +93,9 @@ function FileTab({ onFileLoaded, currentData, columns, fileId, onFileLoadedCallb
       link.click()
       document.body.removeChild(link)
 
-      alert('Данные экспортированы!')
+      showNotification('Данные экспортированы!', 'success')
     } catch (err) {
-      alert('Ошибка экспорта: ' + err.message)
+      showNotification('Ошибка экспорта: ' + err.message, 'error')
     }
   }
 
@@ -131,7 +131,7 @@ function FileTab({ onFileLoaded, currentData, columns, fileId, onFileLoadedCallb
             >
               {loading ? '⏳ Загрузка...' : '📤 Загрузить Excel/CSV'}
             </button>
-            <button type="button" onClick={handleCreateNewTable}>
+            <button type="button" onClick={() => setShowCreateModal(true)}>
               ➕ Создать новую таблицу
             </button>
           </div>
@@ -158,7 +158,7 @@ function FileTab({ onFileLoaded, currentData, columns, fileId, onFileLoadedCallb
             <button type="button" onClick={handleExportToExcel} className="primary">
               💾 Экспорт в Excel
             </button>
-            <button type="button" onClick={handleCreateNewTable}>
+            <button type="button" onClick={() => setShowCreateModal(true)}>
               ➕ Создать новую таблицу
             </button>
           </div>
@@ -172,6 +172,12 @@ function FileTab({ onFileLoaded, currentData, columns, fileId, onFileLoadedCallb
           </div>
         </>
       )}
+      
+      <CreateTableModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onCreate={handleCreateNewTable}
+      />
     </div>
   )
 }

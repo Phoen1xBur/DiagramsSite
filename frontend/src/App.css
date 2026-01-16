@@ -10,10 +10,16 @@
 .tab-button {
   padding: 10px 20px;
   margin-right: 5px;
-  background: #e0e0e0;
+  background: #333;
+  color: white;
   border: none;
   cursor: pointer;
   border-radius: 4px 4px 0 0;
+  transition: all 0.2s;
+}
+
+.tab-button:hover {
+  background: #444;
 }
 
 .tab-button.active {

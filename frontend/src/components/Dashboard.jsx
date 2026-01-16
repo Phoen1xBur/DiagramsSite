@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import apiClient from '../api/client'
+import { useNotification } from '../contexts/NotificationContext'
 import './Dashboard.css'
 
 function Dashboard() {
+  const { showNotification } = useNotification()
   const [projects, setProjects] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -33,7 +35,7 @@ function Dashboard() {
   const handleCreateProject = async (e) => {
     e.preventDefault()
     if (!newProjectName.trim()) {
-      alert('Введите название проекта')
+      showNotification('Введите название проекта', 'warning')
       return
     }
 
@@ -49,7 +51,7 @@ function Dashboard() {
       // Переходим к созданному проекту
       navigate(`/project/${response.data.id}`)
     } catch (err) {
-      alert('Ошибка создания проекта: ' + (err.response?.data?.detail || err.message))
+      showNotification('Ошибка создания проекта: ' + (err.response?.data?.detail || err.message), 'error')
     }
   }
 
@@ -59,9 +61,9 @@ function Dashboard() {
     try {
       await apiClient.delete(`/projects/${projectId}`)
       loadProjects()
-      alert('Проект удален')
+      showNotification('Проект удален', 'success')
     } catch (err) {
-      alert('Ошибка удаления проекта: ' + (err.response?.data?.detail || err.message))
+      showNotification('Ошибка удаления проекта: ' + (err.response?.data?.detail || err.message), 'error')
     }
   }
 

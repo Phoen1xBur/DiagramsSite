@@ -1,0 +1,133 @@
+.toast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 300px;
+  max-width: 500px;
+  padding: 16px 20px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+  transition: transform 0.2s, opacity 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+.toast:hover {
+  transform: translateX(-4px);
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.toast-progress-container {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.2);
+  overflow: hidden;
+}
+
+.toast-progress {
+  height: 100%;
+  background: rgba(255, 255, 255, 0.8);
+  transition: width 0.1s linear;
+  transform-origin: right;
+}
+
+.toast-progress.paused {
+  transition: none;
+}
+
+.toast-success {
+  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+  color: white;
+  border-left: 4px solid #2e7d32;
+}
+
+.toast-error {
+  background: linear-gradient(135deg, #f44336 0%, #d32f2f 100%);
+  color: white;
+  border-left: 4px solid #c62828;
+}
+
+.toast-warning {
+  background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+  color: white;
+  border-left: 4px solid #e65100;
+}
+
+.toast-info {
+  background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+  color: white;
+  border-left: 4px solid #1565C0;
+}
+
+.toast-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.toast-icon {
+  font-size: 20px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.toast-message {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  flex: 1;
+}
+
+.toast-close {
+  background: transparent;
+  border: none;
+  color: white;
+  font-size: 24px;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 12px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.toast-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+}
+
+.toast-container > * {
+  pointer-events: all;
+}

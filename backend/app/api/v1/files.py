@@ -308,6 +308,9 @@ async def update_file(
     # Обновляем данные
     file.data = data.get('data', file.data)
     file.columns = data.get('columns', file.columns)
+    # Обновляем имя файла, если указано
+    if 'original_filename' in data:
+      file.original_filename = data.get('original_filename')
     
     db.commit()
     db.refresh(file)
