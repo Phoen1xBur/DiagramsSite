@@ -9,6 +9,7 @@ from app.models.project import Project
 from app.schemas.diagram import DiagramCreate, DiagramResponse
 from app.services.chart_service import create_sunburst_chart
 from app.api.v1.auth import get_current_user_optional
+from app.api.v1.projects import check_diagram_limit
 
 router = APIRouter()
 
@@ -36,6 +37,9 @@ async def create_diagram(
         ).first()
         if not project:
             raise HTTPException(status_code=404, detail="Проект не найден")
+        
+        # Проверяем лимит диаграмм
+        check_diagram_limit(current_user, project_id, db)
     
     # Генерируем HTML диаграммы
     chart_html = create_sunburst_chart(

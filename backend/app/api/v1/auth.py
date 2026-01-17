@@ -49,6 +49,15 @@ def get_current_user_optional(token: Optional[str] = Depends(oauth2_scheme), db:
     except HTTPException:
         return None
 
+def get_current_admin(current_user: User = Depends(get_current_user)) -> User:
+    """Проверяет что текущий пользователь - администратор"""
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступ запрещен. Требуются права администратора."
+        )
+    return current_user
+
 def transfer_session_files_to_user(session_id: str, user_id: int, db: Session, redis) -> List[int]:
     """Переносит все файлы из сессии Redis в БД и привязывает к пользователю"""
     if not session_id:
@@ -170,6 +179,7 @@ async def register(
         first_name=db_user.first_name,
         username=db_user.username,
         is_active=db_user.is_active,
+        is_admin=db_user.is_admin,
         subscription_type=db_user.subscription_type.value,
         created_at=db_user.created_at
     )
@@ -225,6 +235,7 @@ async def login(
             first_name=user.first_name,
             username=user.username,
             is_active=user.is_active,
+            is_admin=user.is_admin,
             subscription_type=user.subscription_type.value,
             created_at=user.created_at
         )
@@ -301,6 +312,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
         first_name=current_user.first_name,
         username=current_user.username,
         is_active=current_user.is_active,
+        is_admin=current_user.is_admin,
         subscription_type=current_user.subscription_type.value,
         created_at=current_user.created_at
     )

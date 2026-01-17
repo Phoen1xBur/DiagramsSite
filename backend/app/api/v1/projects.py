@@ -47,6 +47,20 @@ def check_file_limit(user: User, project_id: int, db: Session):
                 detail="Базовая подписка позволяет загрузить только 3 файла на проект. Обновите подписку для загрузки большего количества файлов."
             )
 
+def check_diagram_limit(user: User, project_id: int, db: Session):
+    """Проверяет лимит диаграмм в проекте"""
+    if user.subscription_type == SubscriptionType.BASIC:
+        diagrams_count = db.query(func.count(Diagram.id)).filter(
+            Diagram.project_id == project_id,
+            Diagram.user_id == user.id
+        ).scalar()
+        
+        if diagrams_count >= 10:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Базовая подписка позволяет создать только 10 диаграмм на проект. Обновите подписку для создания большего количества диаграмм."
+            )
+
 @router.post("/", response_model=ProjectResponse)
 async def create_project(
     project: ProjectCreate,

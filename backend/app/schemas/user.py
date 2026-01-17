@@ -18,6 +18,7 @@ class UserResponse(BaseModel):
     first_name: str
     username: Optional[str] = None
     is_active: bool
+    is_admin: bool = False
     subscription_type: str
     created_at: datetime
     

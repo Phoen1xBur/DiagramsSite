@@ -42,6 +42,7 @@ class User(Base):
     username = Column(String, unique=True, index=True, nullable=True)  # Опциональный никнейм
     hashed_password = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
+    is_admin = Column(Boolean, default=False)  # Флаг администратора
     subscription_type = Column(SubscriptionTypeColumn(50), default=SubscriptionType.BASIC, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

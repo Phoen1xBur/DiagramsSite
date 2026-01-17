@@ -94,6 +94,9 @@ export const getUserData = () => {
   }
 }
 
+// Alias для getUserData (для обратной совместимости)
+export const getUser = getUserData
+
 // Работа с текущим файлом пользователя (для быстрого восстановления)
 export const saveUserCurrentFile = (data) => {
   try {

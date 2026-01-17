@@ -5,6 +5,7 @@ import EditorTab from './components/EditorTab'
 import ChartTab from './components/ChartTab'
 import ProjectsTab from './components/ProjectsTab'
 import ProjectDetail from './components/ProjectDetail'
+import AdminPanel from './components/AdminPanel'
 import AuthModal from './components/AuthModal'
 import { NotificationProvider, useNotification } from './contexts/NotificationContext'
 import { loadAnonymousData, saveAnonymousData, getUserToken, getUserData, clearUserToken, clearAnonymousData, loadUserCurrentFile, saveUserCurrentFile, saveUserData } from './utils/storage'
@@ -55,6 +56,7 @@ function AppContent() {
                 first_name: meResponse.data.first_name,
                 username: meResponse.data.username,
                 is_active: meResponse.data.is_active,
+                is_admin: meResponse.data.is_admin || false,
                 subscription_type: meResponse.data.subscription_type,
                 created_at: meResponse.data.created_at
               }
@@ -272,6 +274,15 @@ function AppContent() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span>Привет, {user.first_name || user.username || user.email}!</span>
+              {user.is_admin && (
+                <button 
+                  type="button" 
+                  onClick={() => navigate('/admin')} 
+                  style={{ background: '#ffc107', color: '#000' }}
+                >
+                  ⚙️ Админ-панель
+                </button>
+              )}
               <button type="button" onClick={handleLogout} className="danger">
                 Выйти
               </button>
@@ -399,6 +410,7 @@ function App() {
         <Routes>
           <Route path="/" element={<AppContent />} />
           <Route path="/project/:projectId" element={<ProjectDetailRoute />} />
+          <Route path="/admin" element={<AdminPanel />} />
         </Routes>
       </Router>
     </NotificationProvider>
