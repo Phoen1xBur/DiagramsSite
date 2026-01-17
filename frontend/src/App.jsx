@@ -327,21 +327,21 @@ function AppContent() {
       <div className="tab-container">
         <button
           type="button"
-          className={`tab-button ${activeTab === 'file' ? 'active' : ''}`}
+          className={`tab-button-guest ${activeTab === 'file' ? 'active' : ''}`}
           onClick={() => setActiveTab('file')}
         >
           📁 Файл
         </button>
         <button
           type="button"
-          className={`tab-button ${activeTab === 'editor' ? 'active' : ''}`}
+          className={`tab-button-guest ${activeTab === 'editor' ? 'active' : ''}`}
           onClick={() => setActiveTab('editor')}
         >
           ✏️ Редактор
         </button>
         <button
           type="button"
-          className={`tab-button ${activeTab === 'chart' ? 'active' : ''}`}
+          className={`tab-button-guest ${activeTab === 'chart' ? 'active' : ''}`}
           onClick={() => setActiveTab('chart')}
         >
           📈 Диаграмма

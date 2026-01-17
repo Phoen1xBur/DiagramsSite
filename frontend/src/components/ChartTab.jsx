@@ -385,11 +385,14 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
               return (
                 <div 
                   key={col} 
-                  className={`column-label ${isDragged ? 'dragging' : ''} ${showPreview && !isDragged ? 'preview' : ''}`}
+                  className={`column-label ${isDragged ? 'dragging' : ''} ${showPreview && !isDragged ? 'preview' : ''} ${dragOverIndex === originalIdx && !isDragged ? 'drag-over' : ''}`}
                   style={{
                     order: visualIdx,
                     transition: showPreview ? 'all 0.3s ease' : (isDragged ? 'none' : 'all 0.2s ease')
                   }}
+                  draggable={true}
+                  onDragStart={(e) => handleDragStart(e, col)}
+                  onDragEnd={(e) => handleDragEnd(e)}
                   onDragOver={(e) => {
                     if (draggedColumn && !isDragged) {
                       handleDragOver(e, originalIdx)
@@ -455,19 +458,8 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
                   </div>
                   <div 
                     className="drag-handle"
-                    draggable={!isDragged}
-                    onDragStart={(e) => {
-                      if (!isDragged) {
-                        e.stopPropagation()
-                        handleDragStart(e, col)
-                      }
-                    }}
-                    onDragEnd={(e) => {
-                      e.stopPropagation()
-                      handleDragEnd(e)
-                    }}
                     onMouseDown={(e) => {
-                      // Предотвращаем клик на родительский элемент при начале drag
+                      // Предотвращаем клик на родительский элемент
                       e.stopPropagation()
                     }}
                     title="Перетащите для изменения порядка"

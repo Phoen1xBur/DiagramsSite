@@ -26,20 +26,37 @@
   transition: background-color 0.2s, opacity 0.2s, border 0.2s, transform 0.2s;
   gap: 8px;
   position: relative;
+  border: 2px solid transparent;
+  cursor: grab;
 }
 
 .column-label:hover {
   background: #e8f5e9;
+  border-color: #c8e6c9;
+}
+
+.column-label:active {
+  cursor: grabbing;
 }
 
 .column-label.dragging {
-  opacity: 0.5;
-  z-index: 10;
-  pointer-events: none;
+  opacity: 0.4;
+  background: #e3f2fd;
+  border-color: #2196F3;
+  transform: scale(0.98);
+  cursor: grabbing;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.column-label.drag-over {
+  background: #fff9c4;
+  border-color: #fdd835;
+  box-shadow: 0 0 0 2px #fdd835;
 }
 
 .column-label.preview {
   background: #e8f5e9;
+  border-color: #4CAF50;
 }
 
 .column-label label {
@@ -69,21 +86,30 @@
 .drag-handle {
   cursor: grab;
   color: #999;
-  font-size: 16px;
-  padding: 4px 6px;
+  font-size: 18px;
+  padding: 4px 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   user-select: none;
-  transition: color 0.2s;
+  transition: color 0.2s, background-color 0.2s, transform 0.2s;
   flex-shrink: 0;
+  border-radius: 4px;
+  background: transparent;
 }
 
 .drag-handle:hover {
   color: #4CAF50;
+  background: rgba(76, 175, 80, 0.1);
+  transform: scale(1.1);
 }
 
 .drag-handle:active {
+  cursor: grabbing;
+  transform: scale(1.05);
+}
+
+.column-label.dragging .drag-handle {
   cursor: grabbing;
 }
 
@@ -91,6 +117,7 @@
   line-height: 1;
   letter-spacing: -2px;
   margin: 0;
+  font-weight: bold;
 }
 
 .move-buttons {
