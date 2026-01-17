@@ -16,10 +16,10 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
   const [savedDiagramId, setSavedDiagramId] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
   const [draggedColumn, setDraggedColumn] = useState(null)
+  const [draggedFromIndex, setDraggedFromIndex] = useState(null) // ИСХОДНАЯ позиция при начале drag
   const [dragOverIndex, setDragOverIndex] = useState(null)
   const [showPreview, setShowPreview] = useState(false)
   const chartContainerRef = useRef(null)
-  const dragOverTimeoutRef = useRef(null)
 
   useEffect(() => {
     if (columns && columns.length > 0) {
@@ -98,17 +98,38 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
   const handleDragStart = (e, col) => {
     e.dataTransfer.effectAllowed = 'move'
     e.dataTransfer.setData('text/plain', col)
+    const startIdx = columnOrder.indexOf(col)
     setDraggedColumn(col)
+    setDraggedFromIndex(startIdx) // Запоминаем ИСХОДНУЮ позицию
     setShowPreview(false)
     setDragOverIndex(null)
+    console.log('DragStart:', { col, startIdx })
   }
 
   const handleDragEnd = (e) => {
-    if (dragOverTimeoutRef.current) {
-      clearTimeout(dragOverTimeoutRef.current)
-      dragOverTimeoutRef.current = null
+    // Применяем изменения, если есть валидный dragOverIndex
+    if (draggedColumn && dragOverIndex !== null) {
+      const draggedIdx = columnOrder.indexOf(draggedColumn)
+      
+      // ВАЖНО: применяем изменения только если действительно перемещаем на другую позицию
+      if (draggedIdx !== -1 && draggedIdx !== dragOverIndex) {
+        const newOrder = [...columnOrder]
+        newOrder.splice(draggedIdx, 1)
+        newOrder.splice(dragOverIndex, 0, draggedColumn)
+        console.log('DragEnd: Applied new order', { 
+          from: draggedIdx, 
+          to: dragOverIndex, 
+          draggedColumn, 
+          newOrder 
+        })
+        setColumnOrder(newOrder)
+      } else {
+        console.log('DragEnd: No change needed', { draggedIdx, dragOverIndex })
+      }
     }
+    
     setDraggedColumn(null)
+    setDraggedFromIndex(null)
     setDragOverIndex(null)
     setShowPreview(false)
   }
@@ -124,30 +145,43 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
       return columnOrder.map((col, idx) => ({ col, idx, isDragged: false }))
     }
     
-    // Если показываем превью и есть dragOverIndex
-    if (showPreview && dragOverIndex !== null && draggedIdx !== dragOverIndex) {
-      // Вычисляем новый порядок
-      const newOrder = [...columnOrder]
-      newOrder.splice(draggedIdx, 1)
-      newOrder.splice(dragOverIndex, 0, draggedColumn)
-      
-      // Создаем маппинг старых индексов на новые
-      const visualOrder = []
-      for (let i = 0; i < columnOrder.length; i++) {
-        const col = columnOrder[i]
-        const newIdx = newOrder.indexOf(col)
-        visualOrder.push({ col, idx: newIdx, isDragged: col === draggedColumn })
-      }
-      
-      return visualOrder
+    // ВАЖНО: Сравниваем с ИСХОДНОЙ позицией (draggedFromIndex), а не с текущей
+    // Если dragOverIndex совпадает с исходной позицией - НЕ показываем preview
+    if (!showPreview || dragOverIndex === null || dragOverIndex === draggedFromIndex) {
+      return columnOrder.map((col, idx) => ({
+        col,
+        idx: idx,
+        isDragged: col === draggedColumn
+      }))
     }
     
-    // Иначе показываем все элементы, перетаскиваемый остается на своей позиции или на dragOverIndex
-    return columnOrder.map((col, idx) => ({
-      col,
-      idx: col === draggedColumn && dragOverIndex !== null ? dragOverIndex : idx,
-      isDragged: col === draggedColumn
-    }))
+    // Показываем preview только если действительно меняем позицию
+    // Вычисляем новый порядок (как будет после drop)
+    const newOrder = [...columnOrder]
+    newOrder.splice(draggedIdx, 1)
+    newOrder.splice(dragOverIndex, 0, draggedColumn)
+    
+    console.log('getVisualOrder preview:', { 
+      draggedIdx, 
+      dragOverIndex, 
+      draggedFromIndex,
+      currentOrder: columnOrder,
+      newOrder 
+    })
+    
+    // ВСЕ элементы показываем в ФИНАЛЬНОМ порядке
+    const visualOrder = []
+    for (let i = 0; i < columnOrder.length; i++) {
+      const col = columnOrder[i]
+      const newIdx = newOrder.indexOf(col)
+      visualOrder.push({ 
+        col, 
+        idx: newIdx, 
+        isDragged: col === draggedColumn 
+      })
+    }
+    
+    return visualOrder
   }
 
   const handleDragOver = (e, targetIdx) => {
@@ -155,84 +189,32 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
     e.stopPropagation()
     e.dataTransfer.dropEffect = 'move'
     
-    if (!draggedColumn) return
+    if (!draggedColumn || draggedFromIndex === null) return
     
-    // Очищаем предыдущий таймер
-    if (dragOverTimeoutRef.current) {
-      clearTimeout(dragOverTimeoutRef.current)
-      dragOverTimeoutRef.current = null
-    }
+    const draggedIdx = columnOrder.indexOf(draggedColumn)
+    if (draggedIdx === -1) return
     
-    // Если индекс изменился, сбрасываем превью
-    if (dragOverIndex !== targetIdx) {
+    // showPreview = true ТОЛЬКО если перетаскиваем НЕ на исходную позицию
+    const shouldShowPreview = targetIdx !== draggedFromIndex
+    
+    if (dragOverIndex !== targetIdx || showPreview !== shouldShowPreview) {
+      console.log('DragOver:', { 
+        targetIdx, 
+        draggedFromIndex, 
+        shouldShowPreview,
+        currentDraggedIdx: draggedIdx
+      })
       setDragOverIndex(targetIdx)
-      setShowPreview(false)
-      
-      // Устанавливаем новый таймер для показа превью
-      const currentTargetIdx = targetIdx
-      dragOverTimeoutRef.current = setTimeout(() => {
-        // Проверяем, что мы все еще на том же элементе
-        setShowPreview(prev => {
-          if (dragOverIndex === currentTargetIdx && draggedColumn) {
-            return true
-          }
-          return prev
-        })
-      }, 500) // 0.5 секунды задержка
+      setShowPreview(shouldShowPreview)
     }
   }
 
-  const handleDragLeave = (e) => {
-    // Проверяем, что мы действительно покинули элемент
-    const rect = e.currentTarget.getBoundingClientRect()
-    const x = e.clientX
-    const y = e.clientY
-    
-    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-      if (dragOverTimeoutRef.current) {
-        clearTimeout(dragOverTimeoutRef.current)
-        dragOverTimeoutRef.current = null
-      }
-      setDragOverIndex(null)
-      setShowPreview(false)
-    }
-  }
-
-  const handleDrop = (e, targetCol) => {
+  const handleDrop = (e) => {
     e.preventDefault()
     e.stopPropagation()
     
-    if (dragOverTimeoutRef.current) {
-      clearTimeout(dragOverTimeoutRef.current)
-      dragOverTimeoutRef.current = null
-    }
-    
-    const draggedCol = e.dataTransfer.getData('text/plain')
-    
-    if (!draggedCol || draggedCol === targetCol) {
-      setDraggedColumn(null)
-      setDragOverIndex(null)
-      setShowPreview(false)
-      return
-    }
-    
-    const draggedIdx = columnOrder.indexOf(draggedCol)
-    const targetIdx = columnOrder.indexOf(targetCol)
-    
-    if (draggedIdx === -1 || targetIdx === -1 || draggedIdx === targetIdx) {
-      setDraggedColumn(null)
-      setDragOverIndex(null)
-      setShowPreview(false)
-      return
-    }
-    
-    const newOrder = [...columnOrder]
-    newOrder.splice(draggedIdx, 1)
-    newOrder.splice(targetIdx, 0, draggedCol)
-    setColumnOrder(newOrder)
-    setDraggedColumn(null)
-    setDragOverIndex(null)
-    setShowPreview(false)
+    // Применяем изменения из handleDragEnd
+    // handleDragEnd уже будет вызван автоматически после drop
   }
 
   const handleRenderChart = async () => {
@@ -378,30 +360,35 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
             .sort((a, b) => a.idx - b.idx)
             .map(({ col, isDragged }) => {
               const originalIdx = columnOrder.indexOf(col)
-              const visualIdx = showPreview && dragOverIndex !== null && draggedColumn && isDragged
-                ? dragOverIndex
-                : (isDragged && dragOverIndex !== null ? dragOverIndex : originalIdx)
+              const visualOrder = getVisualOrder()
+              const item = visualOrder.find(v => v.col === col)
+              const visualIdx = item ? item.idx : originalIdx
+              
+              // Определяем, изменилась ли позиция элемента (но НЕ для перетаскиваемого)
+              const positionChanged = showPreview && !isDragged && visualIdx !== originalIdx
               
               return (
                 <div 
                   key={col} 
-                  className={`column-label ${isDragged ? 'dragging' : ''} ${showPreview && !isDragged ? 'preview' : ''} ${dragOverIndex === originalIdx && !isDragged ? 'drag-over' : ''}`}
+                  className={`column-label ${isDragged ? 'dragging' : ''} ${positionChanged ? 'preview' : ''}`}
                   style={{
                     order: visualIdx,
-                    transition: showPreview ? 'all 0.3s ease' : (isDragged ? 'none' : 'all 0.2s ease')
+                    transition: showPreview ? 'all 0.3s ease' : 'all 0.15s ease'
                   }}
                   draggable={true}
                   onDragStart={(e) => handleDragStart(e, col)}
                   onDragEnd={(e) => handleDragEnd(e)}
                   onDragOver={(e) => {
                     if (draggedColumn && !isDragged) {
-                      handleDragOver(e, originalIdx)
+                      e.preventDefault()
+                      e.stopPropagation()
+                      // ВАЖНО: передаем ВИЗУАЛЬНЫЙ индекс, а не originalIdx!
+                      handleDragOver(e, visualIdx)
                     }
                   }}
-                  onDragLeave={handleDragLeave}
                   onDrop={(e) => {
                     if (draggedColumn) {
-                      handleDrop(e, col)
+                      handleDrop(e)
                     }
                   }}
                   onClick={(e) => {
