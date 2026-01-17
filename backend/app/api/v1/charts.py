@@ -15,8 +15,9 @@ async def generate_chart(request: ChartRequest):
             columns=request.columns,
             hierarchy_cols=request.hierarchy_columns,
             value_col=request.value_column,
-            show_white=request.show_white,
-            use_gradient=request.use_gradient
+            use_gradient=request.use_gradient,
+            uniform_size=request.uniform_size,
+            show_zero_values=request.show_zero_values
         )
         
         return {"html": html}

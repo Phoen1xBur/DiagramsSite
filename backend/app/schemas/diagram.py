@@ -27,8 +27,9 @@ class DiagramCreate(BaseModel):
     name: Optional[str] = None
     hierarchy_columns: List[str]
     value_column: Optional[str] = None
-    show_white: bool = True
     use_gradient: bool = True
+    uniform_size: bool = False
+    show_zero_values: bool = True
 
 class DiagramResponse(BaseModel):
     id: int
@@ -36,8 +37,9 @@ class DiagramResponse(BaseModel):
     name: Optional[str]
     hierarchy_columns: List[str]
     value_column: Optional[str]
-    show_white: bool
     use_gradient: bool
+    uniform_size: bool
+    show_zero_values: bool
     chart_html: Optional[str]
     created_at: datetime
     updated_at: datetime
@@ -50,6 +52,7 @@ class ChartRequest(BaseModel):
     columns: List[str]
     hierarchy_columns: List[str]
     value_column: Optional[str] = None
-    show_white: bool = True
     use_gradient: bool = True
+    uniform_size: bool = False
+    show_zero_values: bool = True
 

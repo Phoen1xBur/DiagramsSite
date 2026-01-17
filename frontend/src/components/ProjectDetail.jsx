@@ -4,6 +4,9 @@ import FileTab from './FileTab'
 import EditorTab from './EditorTab'
 import ChartTab from './ChartTab'
 import DeleteFileModal from './DeleteFileModal'
+import RenameFileModal from './RenameFileModal'
+import RenameDiagramModal from './RenameDiagramModal'
+import ConfirmDeleteModal from './ConfirmDeleteModal'
 import apiClient from '../api/client'
 import { getUserData } from '../utils/storage'
 import { useNotification } from '../contexts/NotificationContext'
@@ -28,6 +31,12 @@ function ProjectDetail() {
   const [pendingFileName, setPendingFileName] = useState(null)
   const [deleteFileModal, setDeleteFileModal] = useState({ isOpen: false, fileId: null, fileName: '' })
   const [editingProjectName, setEditingProjectName] = useState(false)
+  const [renameDiagramModal, setRenameDiagramModal] = useState({ isOpen: false, diagramId: null, currentName: '' })
+  const [deleteDiagramModal, setDeleteDiagramModal] = useState({ isOpen: false, diagramId: null, diagramName: '' })
+  const [renameFileModal, setRenameFileModal] = useState({ isOpen: false, fileId: null, currentName: '' })
+  const [isRenamingFile, setIsRenamingFile] = useState(false)
+  const [openedDiagramId, setOpenedDiagramId] = useState(null)
+  const [isRenamingDiagram, setIsRenamingDiagram] = useState(false)
   const [projectName, setProjectName] = useState('')
 
   useEffect(() => {
@@ -252,17 +261,30 @@ function ProjectDetail() {
                     <div key={file.id} className="file-card">
                       <div className="file-card-header">
                         <h4>{file.original_filename || `Файл #${file.id}`}</h4>
-                        <button
-                          className="delete-file-btn-small"
-                          onClick={() => setDeleteFileModal({ 
-                            isOpen: true, 
-                            fileId: file.id, 
-                            fileName: file.original_filename || `Файл #${file.id}` 
-                          })}
-                          title="Удалить файл"
-                        >
-                          ✕
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            className="rename-file-btn-small"
+                            onClick={() => setRenameFileModal({
+                              isOpen: true,
+                              fileId: file.id,
+                              currentName: file.original_filename || `Файл #${file.id}`
+                            })}
+                            title="Переименовать файл"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            className="delete-file-btn-small"
+                            onClick={() => setDeleteFileModal({ 
+                              isOpen: true, 
+                              fileId: file.id, 
+                              fileName: file.original_filename || `Файл #${file.id}` 
+                            })}
+                            title="Удалить файл"
+                          >
+                            ✕
+                          </button>
+                        </div>
                       </div>
                       <div className="file-card-info">
                         <span>📊 Столбцов: {file.columns?.length || 0}</span>
@@ -337,29 +359,67 @@ function ProjectDetail() {
             </div>
           ) : (
             <div>
-              {projectDiagrams.map(diagram => (
-                <div key={diagram.id} style={{ padding: '10px', border: '1px solid #ddd', marginBottom: '10px', borderRadius: '4px' }}>
-                  <h4>{diagram.name || `Диаграмма #${diagram.id}`}</h4>
-                  <p>Иерархия: {diagram.hierarchy_columns?.join(' → ') || 'Нет данных'}</p>
-                  <button 
-                    className="primary" 
-                    onClick={async () => {
-                      try {
-                        const fileResponse = await apiClient.get(`/files/${diagram.data_file_id}`)
-                        setCurrentData(fileResponse.data.data)
-                        setColumns(fileResponse.data.columns)
-                        setFileId(fileResponse.data.id)
-                        setIsFileModified(false)
-                        setActiveTab('chart')
-                      } catch (err) {
-                        showNotification('Ошибка загрузки файла диаграммы: ' + (err.response?.data?.detail || err.message), 'error')
-                      }
-                    }}
-                  >
-                    Открыть диаграмму
-                  </button>
+              {projectDiagrams.map(diagram => {
+                const diagramFile = projectFiles.find(f => f.id === diagram.data_file_id)
+                const fileName = diagramFile?.original_filename || 'Файл не найден'
+                const diagramName = diagram.name || `Диаграмма #${diagram.id}`
+                const fullName = `${fileName}: ${diagramName}`
+                
+                return (
+                <div key={diagram.id} className="diagram-item">
+                  <div className="diagram-info">
+                    <h4>{fullName}</h4>
+                    <p>Иерархия: {diagram.hierarchy_columns?.join(' → ') || 'Нет данных'}</p>
+                    {diagram.value_column && <p>Столбец значений: {diagram.value_column}</p>}
+                    <p className="diagram-date">Создана: {new Date(diagram.created_at).toLocaleString('ru-RU')}</p>
+                  </div>
+                  <div className="diagram-actions">
+                    <button 
+                      className="primary" 
+                      onClick={async () => {
+                        try {
+                          const fileResponse = await apiClient.get(`/files/${diagram.data_file_id}`)
+                          setCurrentData(fileResponse.data.data)
+                          setColumns(fileResponse.data.columns)
+                          setFileId(fileResponse.data.id)
+                          setIsFileModified(false)
+                          setOpenedDiagramId(diagram.id)
+                          setActiveTab('chart')
+                        } catch (err) {
+                          showNotification('Ошибка загрузки файла диаграммы: ' + (err.response?.data?.detail || err.message), 'error')
+                        }
+                      }}
+                    >
+                      📊 Открыть
+                    </button>
+                    <button 
+                      className="secondary" 
+                      onClick={() => {
+                        setRenameDiagramModal({
+                          isOpen: true,
+                          diagramId: diagram.id,
+                          currentName: diagramName
+                        })
+                      }}
+                    >
+                      ✏️ Переименовать
+                    </button>
+                    <button 
+                      className="delete" 
+                      onClick={() => {
+                        setDeleteDiagramModal({
+                          isOpen: true,
+                          diagramId: diagram.id,
+                          diagramName: fullName
+                        })
+                      }}
+                    >
+                      🗑️ Удалить
+                    </button>
+                  </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
@@ -398,6 +458,8 @@ function ProjectDetail() {
           fileId={fileId}
           user={user}
           projectId={parseInt(projectId)}
+          openedDiagramId={openedDiagramId}
+          fileName={projectFiles.find(f => f.id === fileId)?.original_filename || 'Загрузка...'}
           onChartSaved={() => {
             loadProject() // Обновляем список диаграмм после сохранения
           }}
@@ -409,6 +471,93 @@ function ProjectDetail() {
         onClose={() => setDeleteFileModal({ isOpen: false, fileId: null, fileName: '' })}
         onConfirm={handleDeleteFile}
         fileName={deleteFileModal.fileName}
+      />
+
+      <RenameDiagramModal
+        isOpen={renameDiagramModal.isOpen}
+        currentName={renameDiagramModal.currentName}
+        isLoading={isRenamingDiagram}
+        onClose={() => {
+          if (!isRenamingDiagram) {
+            setRenameDiagramModal({ isOpen: false, diagramId: null, currentName: '' })
+          }
+        }}
+        onRename={async (newName) => {
+          setIsRenamingDiagram(true)
+          try {
+            const diagram = projectDiagrams.find(d => d.id === renameDiagramModal.diagramId)
+            if (!diagram) {
+              throw new Error('Диаграмма не найдена')
+            }
+            
+            // Обновляем только имя, остальные поля оставляем без изменений
+            await apiClient.put(`/diagrams/${renameDiagramModal.diagramId}`, {
+              data_file_id: diagram.data_file_id,
+              name: newName,
+              hierarchy_columns: diagram.hierarchy_columns,
+              value_column: diagram.value_column,
+              use_gradient: diagram.use_gradient,
+              uniform_size: diagram.uniform_size,
+              show_zero_values: diagram.show_zero_values
+            })
+            
+            showNotification('Диаграмма переименована!', 'success')
+            await loadProject()
+            setRenameDiagramModal({ isOpen: false, diagramId: null, currentName: '' })
+          } catch (err) {
+            showNotification('Ошибка переименования: ' + (err.response?.data?.detail || err.message), 'error')
+          } finally {
+            setIsRenamingDiagram(false)
+          }
+        }}
+      />
+
+      <ConfirmDeleteModal
+        isOpen={deleteDiagramModal.isOpen}
+        diagramName={deleteDiagramModal.diagramName}
+        onClose={() => setDeleteDiagramModal({ isOpen: false, diagramId: null, diagramName: '' })}
+        onConfirm={async () => {
+          try {
+            await apiClient.delete(`/diagrams/${deleteDiagramModal.diagramId}`)
+            showNotification('Диаграмма удалена!', 'success')
+            loadProject()
+            setDeleteDiagramModal({ isOpen: false, diagramId: null, diagramName: '' })
+          } catch (err) {
+            showNotification('Ошибка удаления: ' + (err.response?.data?.detail || err.message), 'error')
+          }
+        }}
+      />
+
+      <RenameFileModal
+        isOpen={renameFileModal.isOpen}
+        currentName={renameFileModal.currentName}
+        isLoading={isRenamingFile}
+        onClose={() => {
+          if (!isRenamingFile) {
+            setRenameFileModal({ isOpen: false, fileId: null, currentName: '' })
+          }
+        }}
+        onRename={async (newName) => {
+          setIsRenamingFile(true)
+          try {
+            await apiClient.put(`/files/${renameFileModal.fileId}`, {
+              original_filename: newName
+            })
+            
+            showNotification('Файл переименован!', 'success')
+            
+            // Обновляем имя файла в локальном состоянии
+            setProjectFiles(prev => prev.map(f => 
+              f.id === renameFileModal.fileId ? { ...f, original_filename: newName } : f
+            ))
+            
+            setRenameFileModal({ isOpen: false, fileId: null, currentName: '' })
+          } catch (err) {
+            showNotification('Ошибка переименования: ' + (err.response?.data?.detail || err.message), 'error')
+          } finally {
+            setIsRenamingFile(false)
+          }
+        }}
       />
     </div>
   )

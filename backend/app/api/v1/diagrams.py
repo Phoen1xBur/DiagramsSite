@@ -43,8 +43,9 @@ async def create_diagram(
         columns=data_file.columns,
         hierarchy_cols=diagram.hierarchy_columns,
         value_col=diagram.value_column,
-        show_white=diagram.show_white,
-        use_gradient=diagram.use_gradient
+        use_gradient=diagram.use_gradient,
+        uniform_size=diagram.uniform_size,
+        show_zero_values=diagram.show_zero_values
     )
     
     # Создаем диаграмму
@@ -53,8 +54,9 @@ async def create_diagram(
         name=diagram.name,
         hierarchy_columns=diagram.hierarchy_columns,
         value_column=diagram.value_column,
-        show_white=1 if diagram.show_white else 0,
         use_gradient=1 if diagram.use_gradient else 0,
+        uniform_size=1 if diagram.uniform_size else 0,
+        show_zero_values=1 if diagram.show_zero_values else 0,
         chart_html=chart_html,
         user_id=current_user.id if current_user else None,
         project_id=project_id if project_id else (data_file.project_id if data_file.project_id else None),
@@ -75,8 +77,9 @@ async def create_diagram(
         name=db_diagram.name,
         hierarchy_columns=db_diagram.hierarchy_columns,
         value_column=db_diagram.value_column,
-        show_white=bool(db_diagram.show_white),
         use_gradient=bool(db_diagram.use_gradient),
+        uniform_size=bool(db_diagram.uniform_size),
+        show_zero_values=bool(db_diagram.show_zero_values),
         chart_html=db_diagram.chart_html,
         created_at=db_diagram.created_at,
         updated_at=db_diagram.updated_at
@@ -106,8 +109,9 @@ async def list_diagrams(
             name=d.name,
             hierarchy_columns=d.hierarchy_columns,
             value_column=d.value_column,
-            show_white=bool(d.show_white),
             use_gradient=bool(d.use_gradient),
+            uniform_size=bool(d.uniform_size),
+            show_zero_values=bool(d.show_zero_values),
             chart_html=d.chart_html,
             created_at=d.created_at,
             updated_at=d.updated_at
@@ -143,8 +147,9 @@ async def get_diagram(
         name=diagram.name,
         hierarchy_columns=diagram.hierarchy_columns,
         value_column=diagram.value_column,
-        show_white=bool(diagram.show_white),
         use_gradient=bool(diagram.use_gradient),
+        uniform_size=bool(diagram.uniform_size),
+        show_zero_values=bool(diagram.show_zero_values),
         chart_html=diagram.chart_html,
         created_at=diagram.created_at,
         updated_at=diagram.updated_at
@@ -180,8 +185,9 @@ async def update_diagram(
         columns=data_file.columns,
         hierarchy_cols=diagram.hierarchy_columns,
         value_col=diagram.value_column,
-        show_white=diagram.show_white,
-        use_gradient=diagram.use_gradient
+        use_gradient=diagram.use_gradient,
+        uniform_size=diagram.uniform_size,
+        show_zero_values=diagram.show_zero_values
     )
     
     # Обновляем диаграмму
@@ -189,8 +195,9 @@ async def update_diagram(
     db_diagram.name = diagram.name
     db_diagram.hierarchy_columns = diagram.hierarchy_columns
     db_diagram.value_column = diagram.value_column
-    db_diagram.show_white = 1 if diagram.show_white else 0
     db_diagram.use_gradient = 1 if diagram.use_gradient else 0
+    db_diagram.uniform_size = 1 if diagram.uniform_size else 0
+    db_diagram.show_zero_values = 1 if diagram.show_zero_values else 0
     db_diagram.chart_html = chart_html
     # Обновляем user_id если пользователь авторизовался
     if current_user:
@@ -210,8 +217,9 @@ async def update_diagram(
         name=db_diagram.name,
         hierarchy_columns=db_diagram.hierarchy_columns,
         value_column=db_diagram.value_column,
-        show_white=bool(db_diagram.show_white),
         use_gradient=bool(db_diagram.use_gradient),
+        uniform_size=bool(db_diagram.uniform_size),
+        show_zero_values=bool(db_diagram.show_zero_values),
         chart_html=db_diagram.chart_html,
         created_at=db_diagram.created_at,
         updated_at=db_diagram.updated_at

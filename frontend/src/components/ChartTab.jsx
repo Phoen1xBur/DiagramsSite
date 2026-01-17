@@ -1,20 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react'
 import apiClient from '../api/client'
 import { useNotification } from '../contexts/NotificationContext'
+import SaveAsNewModal from './SaveAsNewModal'
 import './ChartTab.css'
 
-function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
+function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, openedDiagramId, fileName }) {
   const { showNotification } = useNotification()
   const [selectedColumns, setSelectedColumns] = useState([])
   const [columnOrder, setColumnOrder] = useState([]) // Порядок всех столбцов
   const [valueColumn, setValueColumn] = useState('')
-  const [showWhite, setShowWhite] = useState(true)
   const [useGradient, setUseGradient] = useState(true)
+  const [uniformSize, setUniformSize] = useState(false)
+  const [showZeroValues, setShowZeroValues] = useState(true)
   const [chartHtml, setChartHtml] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [savedDiagramId, setSavedDiagramId] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [saveAsNewModal, setSaveAsNewModal] = useState(false)
   const [draggedColumn, setDraggedColumn] = useState(null)
   const [draggedFromIndex, setDraggedFromIndex] = useState(null) // ИСХОДНАЯ позиция при начале drag
   const [dragOverIndex, setDragOverIndex] = useState(null)
@@ -39,9 +41,9 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
           const chartData = JSON.parse(saved)
           setSelectedColumns(chartData.selectedColumns || [])
           setValueColumn(chartData.valueColumn || '')
-          setShowWhite(chartData.showWhite !== undefined ? chartData.showWhite : true)
           setUseGradient(chartData.useGradient !== undefined ? chartData.useGradient : true)
-          setSavedDiagramId(chartData.diagramId || null)
+          setUniformSize(chartData.uniformSize || false)
+          setShowZeroValues(chartData.showZeroValues !== undefined ? chartData.showZeroValues : true)
           // Восстанавливаем порядок столбцов, если он сохранен
           if (chartData.columnOrder && chartData.columnOrder.length === columns.length) {
             setColumnOrder(chartData.columnOrder)
@@ -62,16 +64,27 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
           selectedColumns,
           columnOrder,
           valueColumn,
-          showWhite,
           useGradient,
-          diagramId: savedDiagramId
+          uniformSize,
+          showZeroValues
         }))
       } catch (e) {
         // Если не удалось сохранить (например, квота превышена), просто игнорируем
         console.warn('Не удалось сохранить настройки диаграммы в localStorage:', e)
       }
     }
-  }, [selectedColumns, columnOrder, valueColumn, showWhite, useGradient, savedDiagramId, fileId])
+  }, [selectedColumns, columnOrder, valueColumn, useGradient, uniformSize, showZeroValues, fileId])
+
+  // Автопостроение диаграммы при открытии сохраненной
+  useEffect(() => {
+    if (openedDiagramId && selectedColumns.length > 0 && data && data.length > 0 && !chartHtml) {
+      // Небольшая задержка чтобы убедиться что все данные загружены
+      const timer = setTimeout(() => {
+        handleRenderChart()
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [openedDiagramId, selectedColumns, data])
 
   const handleColumnToggle = (col) => {
     setSelectedColumns(prev => {
@@ -238,8 +251,9 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
         columns: columns,
         hierarchy_columns: selectedColumns,
         value_column: valueColumn || null,
-        show_white: showWhite,
-        use_gradient: useGradient
+        use_gradient: useGradient,
+        uniform_size: uniformSize,
+        show_zero_values: showZeroValues
       })
 
       if (response.data && response.data.html) {
@@ -253,7 +267,13 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
       }
     } catch (err) {
       console.error('Ошибка генерации диаграммы:', err)
-      const errorMessage = err.response?.data?.detail || err.message || 'Ошибка генерации диаграммы'
+      let errorMessage = err.response?.data?.detail || err.message || 'Ошибка генерации диаграммы'
+      
+      // Обрабатываем специфические ошибки
+      if (errorMessage.includes('between') || errorMessage.includes('integer') || errorMessage.includes('<=') || errorMessage.includes('str')) {
+        errorMessage = `Ошибка при обработке столбца значений "${valueColumn}". Возможно, в данных есть пустые ячейки или нечисловые значения. Проверьте данные или выберите "Без значений".`
+      }
+      
       setError(errorMessage)
       setChartHtml('')
       setLoading(false)
@@ -262,6 +282,46 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
   }
 
   const handleSaveDiagram = async () => {
+    // Сохранение/обновление открытой диаграммы
+    if (!fileId || !user || !chartHtml) {
+      showNotification('Для сохранения необходимо построить диаграмму и быть авторизованным пользователем', 'warning')
+      return
+    }
+
+    if (!openedDiagramId) {
+      showNotification('Используйте "Сохранить как новую" для создания новой диаграммы', 'warning')
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      // Получаем текущую диаграмму чтобы сохранить её имя
+      const currentDiagram = await apiClient.get(`/diagrams/${openedDiagramId}`)
+      
+      const diagramData = {
+        data_file_id: fileId,
+        name: currentDiagram.data.name, // Сохраняем оригинальное имя
+        hierarchy_columns: selectedColumns,
+        value_column: valueColumn || null,
+        use_gradient: useGradient,
+        uniform_size: uniformSize,
+        show_zero_values: showZeroValues
+      }
+
+      await apiClient.put(`/diagrams/${openedDiagramId}`, diagramData)
+
+      if (onChartSaved) {
+        onChartSaved()
+      }
+      showNotification('Диаграмма успешно обновлена!', 'success')
+    } catch (err) {
+      showNotification('Ошибка сохранения диаграммы: ' + (err.response?.data?.detail || err.message), 'error')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleSaveAsNew = async (diagramName) => {
     if (!fileId || !user || !chartHtml) {
       showNotification('Для сохранения необходимо построить диаграмму и быть авторизованным пользователем', 'warning')
       return
@@ -271,31 +331,25 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
     try {
       const diagramData = {
         data_file_id: fileId,
-        name: `Диаграмма от ${new Date().toLocaleDateString('ru-RU')}`,
+        name: diagramName,
         hierarchy_columns: selectedColumns,
         value_column: valueColumn || null,
-        show_white: showWhite,
-        use_gradient: useGradient
+        use_gradient: useGradient,
+        uniform_size: uniformSize,
+        show_zero_values: showZeroValues
       }
 
-      let response
       const url = projectId 
         ? `/diagrams/?project_id=${projectId}`
         : '/diagrams/'
       
-      if (savedDiagramId) {
-        // Обновляем существующую диаграмму
-        response = await apiClient.put(`/diagrams/${savedDiagramId}`, diagramData)
-      } else {
-        // Создаем новую диаграмму
-        response = await apiClient.post(url, diagramData)
-        setSavedDiagramId(response.data.id)
-      }
+      await apiClient.post(url, diagramData)
 
       if (onChartSaved) {
         onChartSaved()
       }
-      showNotification('Диаграмма успешно сохранена!', 'success')
+      showNotification('Новая диаграмма успешно сохранена!', 'success')
+      setSaveAsNewModal(false)
     } catch (err) {
       showNotification('Ошибка сохранения диаграммы: ' + (err.response?.data?.detail || err.message), 'error')
     } finally {
@@ -352,6 +406,19 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
 
   return (
     <div className="chart-tab">
+      {fileName && (
+        <div style={{ 
+          marginBottom: '15px', 
+          padding: '10px 15px', 
+          background: '#f5f5f5', 
+          borderRadius: '6px',
+          borderLeft: '4px solid #4CAF50'
+        }}>
+          <p style={{ margin: 0, fontSize: '14px', color: '#666' }}>
+            <strong>Открытый файл:</strong> {fileName}
+          </p>
+        </div>
+      )}
       <div className="chart-controls">
         <p><strong>Столбцы для иерархии (порядок важен):</strong></p>
         <div className="columns-list">
@@ -462,6 +529,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
         <select
           value={valueColumn}
           onChange={(e) => setValueColumn(e.target.value)}
+          title="Опционально: выберите столбец с числовыми значениями от 0 до 100 для отображения процента заполнения секторов"
         >
           <option value="">Без значений</option>
           {columns.map(col => (
@@ -470,23 +538,99 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
         </select>
 
         <div style={{ marginTop: '15px' }}>
-          <label style={{ cursor: 'pointer', userSelect: 'none' }}>
+          <label style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}>
             <input
               type="checkbox"
-              checked={showWhite}
-              onChange={(e) => setShowWhite(e.target.checked)}
+              checked={uniformSize}
+              onChange={(e) => setUniformSize(e.target.checked)}
+              disabled={!valueColumn}
             />
-            <span>Показывать непроработанные сектора белым</span>
+            <span style={{ opacity: !valueColumn ? 0.5 : 1 }}>
+              Равномерное распределение секторов {!valueColumn && '*'}
+            </span>
+            {!valueColumn && (
+              <span 
+                style={{ cursor: 'help', color: '#666', fontSize: '14px' }}
+                title="Требуется выбрать столбец значений"
+              >
+                ℹ️
+              </span>
+            )}
+            {valueColumn && (
+              <span 
+                style={{ cursor: 'help', color: '#666', fontSize: '14px' }}
+                title="Все сектора будут одинакового размера независимо от значений"
+              >
+                ℹ️
+              </span>
+            )}
           </label>
           <br />
-          <label style={{ cursor: 'pointer', userSelect: 'none' }}>
+          <label style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <input
+              type="checkbox"
+              checked={showZeroValues}
+              onChange={(e) => setShowZeroValues(e.target.checked)}
+              disabled={!valueColumn}
+            />
+            <span style={{ opacity: !valueColumn ? 0.5 : 1 }}>
+              Отображать нулевые значения {!valueColumn && '*'}
+            </span>
+            {!valueColumn && (
+              <span 
+                style={{ cursor: 'help', color: '#666', fontSize: '14px' }}
+                title="Требуется выбрать столбец значений"
+              >
+                ℹ️
+              </span>
+            )}
+          </label>
+          {valueColumn && showZeroValues && (
+            <div style={{ 
+              marginTop: '8px',
+              marginLeft: '25px', 
+              fontSize: '11px', 
+              color: '#e67e22',
+              fontStyle: 'italic',
+              backgroundColor: '#fff3cd',
+              padding: '8px',
+              borderRadius: '4px',
+              border: '1px solid #ffc107'
+            }}>
+              ⚠️ <strong>Важно:</strong> Из-за ограничений библиотеки визуализации, нулевые значения будут отображаться как "1" на диаграмме (минимальный размер для отображения сектора). Реальное значение "0" будет видно при наведении.
+            </div>
+          )}
+          <br />
+          <label style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}>
             <input
               type="checkbox"
               checked={useGradient}
               onChange={(e) => setUseGradient(e.target.checked)}
+              disabled={!valueColumn}
             />
-            <span>Использовать градиент (внешние сектора ярче)</span>
+            <span style={{ opacity: !valueColumn ? 0.5 : 1 }}>
+              Использовать градиент (внешние сектора ярче) {!valueColumn && '*'}
+            </span>
+            {!valueColumn && (
+              <span 
+                style={{ cursor: 'help', color: '#666', fontSize: '14px' }}
+                title="Требуется выбрать столбец значений для работы градиента"
+              >
+                ℹ️
+              </span>
+            )}
           </label>
+          {!valueColumn && (
+            <div style={{ 
+              marginTop: '5px', 
+              fontSize: '12px', 
+              color: '#666', 
+              fontStyle: 'italic',
+              paddingLeft: '25px'
+            }}>
+              * Опции с градиентом и нулевыми значениями требуют выбора столбца значений
+            </div>
+          )}
         </div>
 
         <div className="chart-actions">
@@ -494,14 +638,25 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
             {loading ? 'Построение...' : 'Построить диаграмму'}
           </button>
           {user && chartHtml && (
-            <button 
-              type="button" 
-              className="save-btn" 
-              onClick={handleSaveDiagram}
-              disabled={isSaving}
-            >
-              {isSaving ? 'Сохранение...' : '💾 Сохранить диаграмму'}
-            </button>
+            <>
+              <button 
+                type="button" 
+                className="save-btn" 
+                onClick={handleSaveDiagram}
+                disabled={isSaving || !openedDiagramId}
+                title={!openedDiagramId ? 'Доступно только для открытых диаграмм' : 'Сохранить изменения в текущую диаграмму'}
+              >
+                {isSaving ? 'Сохранение...' : '💾 Сохранить диаграмму'}
+              </button>
+              <button 
+                type="button" 
+                className="save-as-new-btn" 
+                onClick={() => setSaveAsNewModal(true)}
+                disabled={isSaving}
+              >
+                {isSaving ? 'Сохранение...' : '📥 Сохранить как новую'}
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -511,6 +666,12 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId }) {
           {error}
         </div>
       )}
+
+      <SaveAsNewModal
+        isOpen={saveAsNewModal}
+        onClose={() => setSaveAsNewModal(false)}
+        onSave={handleSaveAsNew}
+      />
 
       {loading && (
         <div className="plot" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

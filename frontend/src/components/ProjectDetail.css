@@ -61,6 +61,30 @@
   transform: scale(1.1);
 }
 
+.rename-file-btn-small {
+  background: #2196F3;
+  color: white;
+  border: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: opacity 0.2s, transform 0.2s, background 0.2s;
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+.rename-file-btn-small:hover {
+  opacity: 1;
+  background: #1976D2;
+  transform: scale(1.1);
+}
+
 .file-card-info {
   display: flex;
   flex-direction: column;
@@ -192,4 +216,81 @@
   color: #4CAF50;
   transform: translateX(-2px);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+/* Стили для списка диаграмм */
+.diagram-item {
+  padding: 15px;
+  border: 1px solid #e0e0e0;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  transition: box-shadow 0.2s;
+}
+
+.diagram-item:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.diagram-info {
+  flex: 1;
+}
+
+.diagram-info h4 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  color: #212529;
+}
+
+.diagram-info p {
+  margin: 4px 0;
+  font-size: 14px;
+  color: #666;
+}
+
+.diagram-date {
+  font-size: 12px !important;
+  color: #999 !important;
+}
+
+.diagram-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.diagram-actions button {
+  padding: 8px 14px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.diagram-actions button.secondary {
+  background: #2196F3;
+  color: white;
+  border: none;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.diagram-actions button.secondary:hover {
+  background: #1976D2;
+}
+
+.diagram-actions button.delete {
+  background: #f44336;
+  color: white;
+  border: none;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.diagram-actions button.delete:hover {
+  background: #da190b;
 }

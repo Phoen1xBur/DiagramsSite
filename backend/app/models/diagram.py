@@ -25,16 +25,17 @@ class Diagram(Base):
     __tablename__ = "diagrams"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # null для анонимных
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)  # null для старых диаграмм
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
     data_file_id = Column(Integer, ForeignKey("data_files.id"), nullable=False)
     name = Column(String, nullable=True)
-    hierarchy_columns = Column(JSON, nullable=False)  # List of column names for hierarchy
-    value_column = Column(String, nullable=True)  # Column name for values
-    show_white = Column(Integer, default=1)  # Boolean as integer
-    use_gradient = Column(Integer, default=1)  # Boolean as integer
-    chart_html = Column(Text, nullable=True)  # Generated HTML chart
-    is_anonymous = Column(Boolean, default=False)  # True для анонимных диаграмм
+    hierarchy_columns = Column(JSON, nullable=False)
+    value_column = Column(String, nullable=True)
+    use_gradient = Column(Integer, default=1)
+    uniform_size = Column(Integer, default=0)
+    show_zero_values = Column(Integer, default=1)
+    chart_html = Column(Text, nullable=True)
+    is_anonymous = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
