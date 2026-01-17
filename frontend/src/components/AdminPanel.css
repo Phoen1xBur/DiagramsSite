@@ -225,3 +225,176 @@
 .toggle-active-btn.activate:hover {
   background: #c3e6cb;
 }
+
+/* Вкладки */
+.admin-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #dee2e6;
+}
+
+.admin-tabs button {
+  padding: 12px 24px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 500;
+  color: #666;
+  transition: all 0.2s;
+}
+
+.admin-tabs button:hover {
+  color: #212529;
+  background: #f8f9fa;
+}
+
+.admin-tabs button.active {
+  color: #4CAF50;
+  border-bottom-color: #4CAF50;
+}
+
+/* Секция подписок */
+.subscriptions-section {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.subscriptions-section h2 {
+  margin: 0 0 20px 0;
+  color: #212529;
+}
+
+.configs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 20px;
+}
+
+.config-card {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 20px;
+  transition: box-shadow 0.2s;
+}
+
+.config-card:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.config-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #dee2e6;
+}
+
+.config-header h3 {
+  margin: 0;
+  color: #212529;
+}
+
+.config-type {
+  padding: 4px 12px;
+  background: #4CAF50;
+  color: white;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.config-limits {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.limit-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: white;
+  border-radius: 4px;
+}
+
+.limit-label {
+  color: #666;
+  font-weight: 500;
+}
+
+.limit-value {
+  color: #212529;
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.config-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.config-edit label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #495057;
+}
+
+.config-edit input {
+  padding: 8px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.config-edit input:focus {
+  outline: none;
+  border-color: #4CAF50;
+  box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.1);
+}
+
+.config-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.config-actions button {
+  flex: 1;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.config-actions button.primary {
+  background: #4CAF50;
+  color: white;
+}
+
+.config-actions button.primary:hover {
+  background: #45a049;
+}
+
+.config-actions button.secondary {
+  background: #e0e0e0;
+  color: #666;
+}
+
+.config-actions button.secondary:hover {
+  background: #d0d0d0;
+}

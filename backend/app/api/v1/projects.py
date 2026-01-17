@@ -6,60 +6,95 @@ from app.core.database import get_db
 from app.models.project import Project
 from app.models.user import User, SubscriptionType
 from app.models.diagram import DataFile, Diagram
+from app.models.subscription_config import SubscriptionConfig
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectResponse, ProjectWithStats
 from app.api.v1.auth import get_current_user
 
 router = APIRouter()
 
+def get_subscription_limits(user: User, db: Session):
+    """Получает лимиты подписки из конфигурации"""
+    config = db.query(SubscriptionConfig).filter(
+        SubscriptionConfig.subscription_type == user.subscription_type.value
+    ).first()
+    
+    if not config:
+        # Если конфигурация не найдена, используем жесткие ограничения для basic
+        if user.subscription_type == SubscriptionType.BASIC:
+            return {'max_projects': 1, 'max_files': 3, 'max_diagrams': 10}
+        else:
+            return {'max_projects': -1, 'max_files': -1, 'max_diagrams': -1}
+    
+    return {
+        'max_projects': config.max_projects,
+        'max_files': config.max_files_per_project,
+        'max_diagrams': config.max_diagrams_per_project
+    }
+
 def check_subscription_limits(user: User, db: Session, project_id: int = None):
     """Проверяет ограничения подписки"""
-    if user.subscription_type == SubscriptionType.BASIC:
-        # Базовая подписка: 1 проект максимум
-        projects_count = db.query(func.count(Project.id)).filter(Project.user_id == user.id).scalar()
-        
-        if project_id:
-            # При обновлении существующего проекта - проверяем, что это единственный проект
-            existing_project = db.query(Project).filter(Project.id == project_id, Project.user_id == user.id).first()
-            if not existing_project:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Проект не найден или нет доступа"
-                )
-            # Если обновляем существующий - можно
-            return
-        
-        if projects_count >= 1:
+    limits = get_subscription_limits(user, db)
+    
+    if limits['max_projects'] == -1:
+        # Безлимитная подписка
+        return
+    
+    # Проверяем лимит проектов
+    projects_count = db.query(func.count(Project.id)).filter(Project.user_id == user.id).scalar()
+    
+    if project_id:
+        # При обновлении существующего проекта - проверяем, что это единственный проект
+        existing_project = db.query(Project).filter(Project.id == project_id, Project.user_id == user.id).first()
+        if not existing_project:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Базовая подписка позволяет создать только 1 проект. Обновите подписку для создания большего количества проектов."
+                detail="Проект не найден или нет доступа"
             )
+        # Если обновляем существующий - можно
+        return
+    
+    if projects_count >= limits['max_projects']:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Ваша подписка позволяет создать только {limits['max_projects']} проект(ов). Обновите подписку для создания большего количества проектов."
+        )
 
 def check_file_limit(user: User, project_id: int, db: Session):
     """Проверяет лимит файлов в проекте"""
-    if user.subscription_type == SubscriptionType.BASIC:
-        files_count = db.query(func.count(DataFile.id)).filter(
-            DataFile.project_id == project_id
-        ).scalar()
-        
-        if files_count >= 3:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Базовая подписка позволяет загрузить только 3 файла на проект. Обновите подписку для загрузки большего количества файлов."
-            )
+    limits = get_subscription_limits(user, db)
+    
+    if limits['max_files'] == -1:
+        # Безлимитная подписка
+        return
+    
+    files_count = db.query(func.count(DataFile.id)).filter(
+        DataFile.project_id == project_id
+    ).scalar()
+    
+    if files_count >= limits['max_files']:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Ваша подписка позволяет загрузить только {limits['max_files']} файл(ов) на проект. Обновите подписку для загрузки большего количества файлов."
+        )
 
 def check_diagram_limit(user: User, project_id: int, db: Session):
     """Проверяет лимит диаграмм в проекте"""
-    if user.subscription_type == SubscriptionType.BASIC:
-        diagrams_count = db.query(func.count(Diagram.id)).filter(
-            Diagram.project_id == project_id,
-            Diagram.user_id == user.id
-        ).scalar()
-        
-        if diagrams_count >= 10:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Базовая подписка позволяет создать только 10 диаграмм на проект. Обновите подписку для создания большего количества диаграмм."
-            )
+    limits = get_subscription_limits(user, db)
+    
+    if limits['max_diagrams'] == -1:
+        # Безлимитная подписка
+        return
+    
+    diagrams_count = db.query(func.count(Diagram.id)).filter(
+        Diagram.project_id == project_id,
+        Diagram.user_id == user.id
+    ).scalar()
+    
+    if diagrams_count >= limits['max_diagrams']:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Ваша подписка позволяет создать только {limits['max_diagrams']} диаграмм(ы) на проект. Обновите подписку для создания большего количества диаграмм."
+        )
 
 @router.post("/", response_model=ProjectResponse)
 async def create_project(

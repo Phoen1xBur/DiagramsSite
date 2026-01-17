@@ -6,7 +6,9 @@ from app.core.database import get_db
 from app.models.user import User, SubscriptionType
 from app.models.project import Project
 from app.models.diagram import DataFile, Diagram
+from app.models.subscription_config import SubscriptionConfig
 from app.schemas.user import UserResponse
+from app.schemas.subscription_config import SubscriptionConfigResponse, SubscriptionConfigCreate, SubscriptionConfigUpdate
 from app.api.v1.auth import get_current_admin
 from pydantic import BaseModel
 from datetime import datetime
@@ -144,3 +146,91 @@ async def get_system_stats(
         "total_diagrams": total_diagrams,
         "subscriptions": subscriptions
     }
+
+# === Управление конфигурациями подписок ===
+
+@router.get("/subscription-configs", response_model=List[SubscriptionConfigResponse])
+async def get_subscription_configs(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    """Получить все конфигурации подписок"""
+    configs = db.query(SubscriptionConfig).all()
+    return configs
+
+@router.post("/subscription-configs", response_model=SubscriptionConfigResponse)
+async def create_subscription_config(
+    config: SubscriptionConfigCreate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    """Создать новую конфигурацию подписки"""
+    # Проверяем что такая подписка еще не существует
+    existing = db.query(SubscriptionConfig).filter(
+        SubscriptionConfig.subscription_type == config.subscription_type
+    ).first()
+    
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Конфигурация для подписки '{config.subscription_type}' уже существует"
+        )
+    
+    db_config = SubscriptionConfig(**config.dict())
+    db.add(db_config)
+    db.commit()
+    db.refresh(db_config)
+    
+    return db_config
+
+@router.put("/subscription-configs/{config_id}", response_model=SubscriptionConfigResponse)
+async def update_subscription_config(
+    config_id: int,
+    config_update: SubscriptionConfigUpdate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    """Обновить конфигурацию подписки"""
+    db_config = db.query(SubscriptionConfig).filter(SubscriptionConfig.id == config_id).first()
+    
+    if not db_config:
+        raise HTTPException(status_code=404, detail="Конфигурация не найдена")
+    
+    # Обновляем только переданные поля
+    update_data = config_update.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(db_config, field, value)
+    
+    db.commit()
+    db.refresh(db_config)
+    
+    return db_config
+
+@router.delete("/subscription-configs/{config_id}")
+async def delete_subscription_config(
+    config_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin)
+):
+    """Удалить конфигурацию подписки"""
+    db_config = db.query(SubscriptionConfig).filter(SubscriptionConfig.id == config_id).first()
+    
+    if not db_config:
+        raise HTTPException(status_code=404, detail="Конфигурация не найдена")
+    
+    # Проверяем что нет пользователей с этим типом подписки
+    users_count = db.query(func.count(User.id)).filter(
+        User.subscription_type == db_config.subscription_type
+    ).scalar()
+    
+    if users_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Невозможно удалить конфигурацию. Есть {users_count} пользователь(ей) с этой подпиской."
+        )
+    
+    db.delete(db_config)
+    db.commit()
+    
+    return {"message": "Конфигурация удалена"}
+

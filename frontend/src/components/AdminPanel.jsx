@@ -10,9 +10,12 @@ function AdminPanel() {
   const navigate = useNavigate()
   const [users, setUsers] = useState([])
   const [stats, setStats] = useState(null)
+  const [subscriptionConfigs, setSubscriptionConfigs] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedUser, setSelectedUser] = useState(null)
   const [isChangingSubscription, setIsChangingSubscription] = useState(false)
+  const [activeSection, setActiveSection] = useState('users') // 'users' or 'subscriptions'
+  const [editingConfig, setEditingConfig] = useState(null)
 
   useEffect(() => {
     const user = getUser()
@@ -28,12 +31,14 @@ function AdminPanel() {
   const loadData = async () => {
     try {
       setLoading(true)
-      const [usersRes, statsRes] = await Promise.all([
+      const [usersRes, statsRes, configsRes] = await Promise.all([
         apiClient.get('/admin/users'),
-        apiClient.get('/admin/stats')
+        apiClient.get('/admin/stats'),
+        apiClient.get('/admin/subscription-configs')
       ])
       setUsers(usersRes.data)
       setStats(statsRes.data)
+      setSubscriptionConfigs(configsRes.data)
     } catch (err) {
       showNotification('Ошибка загрузки данных: ' + (err.response?.data?.detail || err.message), 'error')
       if (err.response?.status === 403) {
@@ -70,6 +75,39 @@ function AdminPanel() {
     }
   }
 
+  const handleUpdateConfig = async (configId, updates) => {
+    try {
+      await apiClient.put(`/admin/subscription-configs/${configId}`, updates)
+      showNotification('Конфигурация обновлена!', 'success')
+      loadData()
+      setEditingConfig(null)
+    } catch (err) {
+      showNotification('Ошибка: ' + (err.response?.data?.detail || err.message), 'error')
+    }
+  }
+
+  const handleCreateConfig = async (newConfig) => {
+    try {
+      await apiClient.post('/admin/subscription-configs', newConfig)
+      showNotification('Конфигурация создана!', 'success')
+      loadData()
+    } catch (err) {
+      showNotification('Ошибка: ' + (err.response?.data?.detail || err.message), 'error')
+    }
+  }
+
+  const handleDeleteConfig = async (configId) => {
+    if (!confirm('Удалить эту конфигурацию подписки?')) return
+    
+    try {
+      await apiClient.delete(`/admin/subscription-configs/${configId}`)
+      showNotification('Конфигурация удалена!', 'success')
+      loadData()
+    } catch (err) {
+      showNotification('Ошибка: ' + (err.response?.data?.detail || err.message), 'error')
+    }
+  }
+
   if (loading) {
     return (
       <div className="admin-panel">
@@ -84,6 +122,21 @@ function AdminPanel() {
         <h1>Панель администратора</h1>
         <button className="back-btn" onClick={() => navigate('/')}>
           Вернуться на главную
+        </button>
+      </div>
+
+      <div className="admin-tabs">
+        <button 
+          className={activeSection === 'users' ? 'active' : ''}
+          onClick={() => setActiveSection('users')}
+        >
+          👥 Пользователи
+        </button>
+        <button 
+          className={activeSection === 'subscriptions' ? 'active' : ''}
+          onClick={() => setActiveSection('subscriptions')}
+        >
+          💎 Подписки
         </button>
       </div>
 
@@ -131,6 +184,7 @@ function AdminPanel() {
         </div>
       )}
 
+      {activeSection === 'users' && (
       <div className="users-section">
         <h2>Пользователи ({users.length})</h2>
         <div className="users-table-container">
@@ -198,6 +252,110 @@ function AdminPanel() {
           </table>
         </div>
       </div>
+      )}
+
+      {activeSection === 'subscriptions' && (
+      <div className="subscriptions-section">
+        <h2>Управление подписками</h2>
+        
+        <div className="configs-grid">
+          {subscriptionConfigs.map(config => (
+            <div key={config.id} className="config-card">
+              <div className="config-header">
+                <h3>{config.display_name}</h3>
+                <span className="config-type">{config.subscription_type}</span>
+              </div>
+              
+              {editingConfig?.id === config.id ? (
+                <div className="config-edit">
+                  <label>
+                    Название:
+                    <input 
+                      type="text" 
+                      value={editingConfig.display_name}
+                      onChange={(e) => setEditingConfig({...editingConfig, display_name: e.target.value})}
+                    />
+                  </label>
+                  
+                  <label>
+                    Макс. проектов (-1 = безлимит):
+                    <input 
+                      type="number" 
+                      value={editingConfig.max_projects}
+                      onChange={(e) => setEditingConfig({...editingConfig, max_projects: parseInt(e.target.value)})}
+                    />
+                  </label>
+                  
+                  <label>
+                    Макс. файлов на проект (-1 = безлимит):
+                    <input 
+                      type="number" 
+                      value={editingConfig.max_files_per_project}
+                      onChange={(e) => setEditingConfig({...editingConfig, max_files_per_project: parseInt(e.target.value)})}
+                    />
+                  </label>
+                  
+                  <label>
+                    Макс. диаграмм на проект (-1 = безлимит):
+                    <input 
+                      type="number" 
+                      value={editingConfig.max_diagrams_per_project}
+                      onChange={(e) => setEditingConfig({...editingConfig, max_diagrams_per_project: parseInt(e.target.value)})}
+                    />
+                  </label>
+                  
+                  <div className="config-actions">
+                    <button 
+                      className="primary"
+                      onClick={() => handleUpdateConfig(config.id, {
+                        display_name: editingConfig.display_name,
+                        max_projects: editingConfig.max_projects,
+                        max_files_per_project: editingConfig.max_files_per_project,
+                        max_diagrams_per_project: editingConfig.max_diagrams_per_project
+                      })}
+                    >
+                      💾 Сохранить
+                    </button>
+                    <button 
+                      className="secondary"
+                      onClick={() => setEditingConfig(null)}
+                    >
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="config-info">
+                  <div className="config-limits">
+                    <div className="limit-item">
+                      <span className="limit-label">Проекты:</span>
+                      <span className="limit-value">{config.max_projects === -1 ? '∞' : config.max_projects}</span>
+                    </div>
+                    <div className="limit-item">
+                      <span className="limit-label">Файлов/проект:</span>
+                      <span className="limit-value">{config.max_files_per_project === -1 ? '∞' : config.max_files_per_project}</span>
+                    </div>
+                    <div className="limit-item">
+                      <span className="limit-label">Диаграмм/проект:</span>
+                      <span className="limit-value">{config.max_diagrams_per_project === -1 ? '∞' : config.max_diagrams_per_project}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="config-actions">
+                    <button 
+                      className="primary"
+                      onClick={() => setEditingConfig({...config})}
+                    >
+                      ✏️ Редактировать
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+      )}
     </div>
   )
 }
