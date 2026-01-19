@@ -476,10 +476,6 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
               {localData.map((row, rowIdx) => (
                 <tr
                   key={rowIdx}
-                  onContextMenu={(e) => {
-                    e.preventDefault()
-                    openRowMenu(rowIdx, e.clientX, e.clientY)
-                  }}
                 >
                   <td className="row-header-cell">
                     <button
