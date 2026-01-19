@@ -375,6 +375,7 @@ function AppContent() {
           data={currentData}
           columns={columns}
           onDataUpdated={handleDataUpdated}
+          onColumnsUpdated={(newColumns) => setColumns(newColumns)}
           fileId={fileId}
           user={user}
           onFileSaved={handleFileSaved}

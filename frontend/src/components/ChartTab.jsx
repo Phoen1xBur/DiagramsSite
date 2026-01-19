@@ -22,6 +22,8 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   const [dragOverIndex, setDragOverIndex] = useState(null)
   const [showPreview, setShowPreview] = useState(false)
   const chartContainerRef = useRef(null)
+  const columnsContainerRef = useRef(null)
+  const autoScrollIntervalRef = useRef(null)
 
   useEffect(() => {
     if (columns && columns.length > 0) {
@@ -120,6 +122,12 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   }
 
   const handleDragEnd = (e) => {
+    // Очищаем автоскролл
+    if (autoScrollIntervalRef.current) {
+      clearInterval(autoScrollIntervalRef.current)
+      autoScrollIntervalRef.current = null
+    }
+    
     // Применяем изменения, если есть валидный dragOverIndex
     if (draggedColumn && dragOverIndex !== null) {
       const draggedIdx = columnOrder.indexOf(draggedColumn)
@@ -219,6 +227,48 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
       })
       setDragOverIndex(targetIdx)
       setShowPreview(shouldShowPreview)
+    }
+
+    // Автоскролл с постоянной скоростью
+    if (columnsContainerRef.current) {
+      const container = columnsContainerRef.current
+      const rect = container.getBoundingClientRect()
+      const scrollZone = 100 // Зона для автоскролла в пикселях
+      const scrollSpeed = 5 // Постоянная скорость
+      
+      const mouseY = e.clientY
+      const distanceFromTop = mouseY - rect.top
+      const distanceFromBottom = rect.bottom - mouseY
+      
+      // Очищаем предыдущий интервал
+      if (autoScrollIntervalRef.current) {
+        clearInterval(autoScrollIntervalRef.current)
+        autoScrollIntervalRef.current = null
+      }
+      
+      // Скролл вверх
+      if (distanceFromTop < scrollZone && container.scrollTop > 0) {
+        autoScrollIntervalRef.current = setInterval(() => {
+          if (container.scrollTop > 0) {
+            container.scrollTop -= scrollSpeed
+          } else {
+            clearInterval(autoScrollIntervalRef.current)
+            autoScrollIntervalRef.current = null
+          }
+        }, 20)
+      }
+      // Скролл вниз
+      else if (distanceFromBottom < scrollZone && 
+               container.scrollTop < container.scrollHeight - container.clientHeight) {
+        autoScrollIntervalRef.current = setInterval(() => {
+          if (container.scrollTop < container.scrollHeight - container.clientHeight) {
+            container.scrollTop += scrollSpeed
+          } else {
+            clearInterval(autoScrollIntervalRef.current)
+            autoScrollIntervalRef.current = null
+          }
+        }, 20)
+      }
     }
   }
 
@@ -421,7 +471,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
       )}
       <div className="chart-controls">
         <p><strong>Столбцы для иерархии (порядок важен):</strong></p>
-        <div className="columns-list">
+        <div className="columns-list" ref={columnsContainerRef}>
           {/* Показываем все столбцы в визуальном порядке при перетаскивании */}
           {getVisualOrder()
             .sort((a, b) => a.idx - b.idx)

@@ -133,13 +133,12 @@
   max-height: 70vh;
   overflow-y: auto;
   margin: 20px;
-  padding: 20px;
-  background: #fafafa;
-  border-radius: 8px;
-  border: 1px solid #e9ecef;
+  padding: 0 20px 20px 20px;
   border-radius: 12px;
+  border: 1px solid #e9ecef;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
   background: white;
+  position: relative;
 }
 
 .data-table {
@@ -148,25 +147,61 @@
   background: white;
 }
 
-.data-table th {
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  padding: 16px 12px;
-  text-align: left;
-  font-weight: 700;
-  border-bottom: 2px solid #dee2e6;
+.data-table thead {
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 10000;
+  background: #f8f9fa;
+}
+
+.data-table th {
+  background: #f8f9fa;
+  padding: 32px 12px;
+  text-align: left;
+  font-weight: 700;
+  border-bottom: 3px solid #dee2e6;
+  position: sticky;
+  top: 0;
+  z-index: 10000;
   color: #495057;
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  min-height: 75px;
+}
+
+/* Добавляем непрозрачный барьер снизу заголовков */
+.data-table th::after {
+  content: '';
+  position: absolute;
+  bottom: -3px;
+  left: 0;
+  right: 0;
+  height: 5px;
+  background: #f8f9fa;
+  z-index: 10001;
+}
+
+/* Градиент поверх фона */
+.data-table th::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  z-index: -1;
 }
 
 .data-table td {
   padding: 12px;
   border-bottom: 1px solid #f1f3f5;
   transition: background 0.2s;
+  position: relative;
+  z-index: 1;
+  background: white;
 }
 
 .data-table td input {
@@ -192,25 +227,110 @@
 }
 
 .row-header {
-  width: 50px;
-  min-width: 50px;
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  position: sticky;
-  left: 0;
-  z-index: 5;
-  border-right: 2px solid #dee2e6;
-}
-
-.row-header-cell {
-  width: 50px;
-  min-width: 50px;
+  width: 120px;
+  min-width: 120px;
   background: #f8f9fa;
   position: sticky;
   left: 0;
-  z-index: 4;
-  padding: 12px 8px;
+  z-index: 10001;
+  border-right: 2px solid #dee2e6;
+}
+
+.row-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  z-index: -1;
+}
+
+.row-header-cell {
+  width: 120px;
+  min-width: 120px;
+  background: #f8f9fa;
+  position: sticky;
+  left: 0;
+  z-index: 100;
+  padding: 6px 4px;
   text-align: center;
   border-right: 2px solid #e9ecef;
+  vertical-align: middle;
+}
+
+.row-controls {
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  transform: translateX(-100%);
+  opacity: 0;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.data-table tr:hover .row-controls {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.row-control-btn {
+  background: #667eea;
+  color: white;
+  border: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: all 0.15s ease;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.row-control-btn:hover:not(:disabled) {
+  transform: scale(1.08);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.row-control-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+.row-control-btn.move-up,
+.row-control-btn.move-down {
+  background: #667eea;
+}
+
+.row-control-btn.move-up:hover:not(:disabled) {
+  background: #5568d3;
+}
+
+.row-control-btn.move-down:hover:not(:disabled) {
+  background: #5568d3;
+}
+
+.row-control-btn.duplicate {
+  background: #4CAF50;
+}
+
+.row-control-btn.duplicate:hover {
+  background: #45a049;
+}
+
+.row-control-btn.delete {
+  background: #f44336;
+}
+
+.row-control-btn.delete:hover {
+  background: #d32f2f;
 }
 
 .column-header {

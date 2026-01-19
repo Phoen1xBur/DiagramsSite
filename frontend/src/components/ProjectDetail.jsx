@@ -101,6 +101,11 @@ function ProjectDetail() {
     setIsFileModified(true)
   }
 
+  const handleColumnsUpdated = (newColumns) => {
+    setColumns(newColumns)
+    setIsFileModified(true)
+  }
+
   const handleFileSaved = () => {
     setIsFileModified(false)
   }
@@ -430,6 +435,7 @@ function ProjectDetail() {
           data={currentData}
           columns={columns}
           onDataUpdated={handleDataUpdated}
+          onColumnsUpdated={handleColumnsUpdated}
           fileId={fileId}
           user={user}
           onFileSaved={(newFileId) => {

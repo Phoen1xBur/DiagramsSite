@@ -4,7 +4,7 @@ import { useNotification } from '../contexts/NotificationContext'
 import AddColumnModal from './AddColumnModal'
 import './EditorTab.css'
 
-function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, onFileIdUpdate, projectId, fileName, onFileNameChange }) {
+function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, onFileIdUpdate, projectId, fileName, onFileNameChange, onColumnsUpdated }) {
   const { showNotification } = useNotification()
   const [localData, setLocalData] = useState(data || [])
   const [localColumns, setLocalColumns] = useState(columns || [])
@@ -75,6 +75,10 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
     setLocalData(newData)
     setIsModified(true)
     onDataUpdated(newData)
+    if (onColumnsUpdated) {
+      onColumnsUpdated(newColumns)
+    }
+    showNotification(`Столбец "${colName.trim()}" добавлен!`, 'success')
   }
 
   const handleDeleteRow = (rowIdx) => {
@@ -83,6 +87,59 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
     setLocalData(newData)
     setIsModified(true)
     onDataUpdated(newData)
+  }
+
+  const handleMoveRowUp = (rowIdx) => {
+    if (rowIdx === 0) return
+    const newData = [...localData]
+    const temp = newData[rowIdx]
+    newData[rowIdx] = newData[rowIdx - 1]
+    newData[rowIdx - 1] = temp
+    setLocalData(newData)
+    setIsModified(true)
+    onDataUpdated(newData)
+  }
+
+  const handleMoveRowDown = (rowIdx) => {
+    if (rowIdx === localData.length - 1) return
+    const newData = [...localData]
+    const temp = newData[rowIdx]
+    newData[rowIdx] = newData[rowIdx + 1]
+    newData[rowIdx + 1] = temp
+    setLocalData(newData)
+    setIsModified(true)
+    onDataUpdated(newData)
+  }
+
+  const handleDuplicateRow = (rowIdx) => {
+    const newRow = { ...localData[rowIdx] }
+    const newData = [
+      ...localData.slice(0, rowIdx + 1),
+      newRow,
+      ...localData.slice(rowIdx + 1)
+    ]
+    setLocalData(newData)
+    setIsModified(true)
+    onDataUpdated(newData)
+    showNotification('Строка скопирована!', 'success')
+  }
+
+  // Получить уникальные значения для столбца (для автозаполнения)
+  // Возвращаем ВСЕ уникальные значения, браузер сам фильтрует и показывает топ-10
+  const getUniqueValuesForColumn = (colName) => {
+    if (!Array.isArray(localData) || localData.length === 0) {
+      return []
+    }
+    const values = new Set()
+    localData.forEach(row => {
+      if (row && row[colName] && typeof row[colName] === 'string' && row[colName].trim()) {
+        values.add(row[colName].trim())
+      }
+    })
+    
+    // Возвращаем ВСЕ уникальные значения, отсортированные
+    // Браузер автоматически фильтрует их по введенному тексту и показывает первые ~10 совпадений
+    return Array.from(values).sort()
   }
 
   const handleDeleteColumn = (colName) => {
@@ -101,6 +158,9 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
     setLocalData(newData)
     setIsModified(true)
     onDataUpdated(newData)
+    if (onColumnsUpdated) {
+      onColumnsUpdated(newColumns)
+    }
   }
 
   const handleColumnNameEdit = (oldName, newName) => {
@@ -122,6 +182,9 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
     setLocalData(newData)
     setIsModified(true)
     onDataUpdated(newData)
+    if (onColumnsUpdated) {
+      onColumnsUpdated(newColumns)
+    }
   }
 
   const handleColumnNameDoubleClick = (colName) => {
@@ -217,7 +280,7 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
     }
   }
 
-  if (!localData || localData.length === 0) {
+  if (!Array.isArray(localData) || localData.length === 0 || !Array.isArray(localColumns) || localColumns.length === 0) {
     return (
       <div className="editor-tab">
         <div className="editor-container">
@@ -365,17 +428,40 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
                   key={rowIdx}
                 >
                   <td className="row-header-cell">
-                    {localData.length > 1 && (
-                      <div className="delete-row-btn-wrapper" onMouseEnter={() => setHoveredRow(rowIdx)} onMouseLeave={() => setHoveredRow(null)}>
+                    <div className="row-controls">
+                      <button
+                        className="row-control-btn move-up"
+                        onClick={() => handleMoveRowUp(rowIdx)}
+                        disabled={rowIdx === 0}
+                        title="Переместить вверх"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        className="row-control-btn move-down"
+                        onClick={() => handleMoveRowDown(rowIdx)}
+                        disabled={rowIdx === localData.length - 1}
+                        title="Переместить вниз"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        className="row-control-btn duplicate"
+                        onClick={() => handleDuplicateRow(rowIdx)}
+                        title="Копировать строку"
+                      >
+                        📋
+                      </button>
+                      {localData.length > 1 && (
                         <button
-                          className="delete-row-btn"
+                          className="row-control-btn delete"
                           onClick={() => handleDeleteRow(rowIdx)}
                           title="Удалить строку"
                         >
                           ✕
                         </button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </td>
                   {localColumns.map(col => (
                     <td key={col}>
@@ -383,6 +469,8 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
                         type="text"
                         value={row[col] || ''}
                         onChange={(e) => handleCellChange(rowIdx, col, e.target.value)}
+                        list={`datalist-${col}`}
+                        autoComplete="off"
                       />
                     </td>
                   ))}
@@ -390,6 +478,14 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
               ))}
             </tbody>
           </table>
+          {/* Datalists для автозаполнения */}
+          {localColumns.map(col => (
+            <datalist key={`datalist-${col}`} id={`datalist-${col}`}>
+              {getUniqueValuesForColumn(col).map((value, idx) => (
+                <option key={idx} value={value} />
+              ))}
+            </datalist>
+          ))}
         </div>
       </div>
     </div>
