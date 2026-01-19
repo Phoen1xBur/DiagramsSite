@@ -227,8 +227,8 @@
 }
 
 .row-header {
-  width: 120px;
-  min-width: 120px;
+  width: 56px;
+  min-width: 56px;
   background: #f8f9fa;
   position: sticky;
   left: 0;
@@ -236,20 +236,9 @@
   border-right: 2px solid #dee2e6;
 }
 
-.row-header::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  z-index: -1;
-}
-
 .row-header-cell {
-  width: 120px;
-  min-width: 120px;
+  width: 56px;
+  min-width: 56px;
   background: #f8f9fa;
   position: sticky;
   left: 0;
@@ -260,20 +249,70 @@
   vertical-align: middle;
 }
 
-.row-controls {
-  display: flex;
-  flex-direction: row;
-  gap: 4px;
+.row-actions-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: #eef1f7;
+  color: #3a4a6b;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  transform: translateX(-100%);
-  opacity: 0;
-  transition: transform 0.3s ease, opacity 0.3s ease;
+  transition: background 0.2s ease, transform 0.2s ease;
 }
 
-.data-table tr:hover .row-controls {
-  transform: translateX(0);
-  opacity: 1;
+.row-actions-btn:hover {
+  background: #e0e6f2;
+  transform: scale(1.05);
+}
+
+.row-menu {
+  position: absolute;
+  background: #ffffff;
+  border: 1px solid #e3e7ef;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  z-index: 20000;
+  width: max-content;
+  min-width: 0;
+  max-width: 200px;
+}
+
+.row-menu-item {
+  width: 95%;
+  display: block;
+  text-align: left;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  color: #2c3e50;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.row-menu-item:hover {
+  background: #f4f6fb;
+}
+
+.row-menu-item.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.row-menu-item.danger {
+  color: #d32f2f;
+  background: #fff5f5;
+}
+
+.row-menu-item.danger:hover {
+  background: #ffe9e9;
 }
 
 .row-control-btn {

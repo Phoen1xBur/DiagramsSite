@@ -18,6 +18,8 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
   const [currentFileName, setCurrentFileName] = useState(fileName || '')
   const [editingFileName, setEditingFileName] = useState(false)
   const isInitialMount = useRef(true)
+  const tableWrapperRef = useRef(null)
+  const [rowMenu, setRowMenu] = useState({ isOpen: false, rowIdx: null, x: 0, y: 0 })
 
   const prevFileIdRef = useRef(fileId)
   
@@ -35,6 +37,43 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
       setLocalColumns(columns || [])
     }
   }, [data, columns, fileId])
+
+  useEffect(() => {
+    if (!rowMenu.isOpen) return
+
+    const handleClickOutside = (event) => {
+      if (!tableWrapperRef.current) return
+      if (!tableWrapperRef.current.contains(event.target)) {
+        setRowMenu({ isOpen: false, rowIdx: null, x: 0, y: 0 })
+      }
+    }
+
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        setRowMenu({ isOpen: false, rowIdx: null, x: 0, y: 0 })
+      }
+    }
+
+    const handleScroll = () => {
+      setRowMenu({ isOpen: false, rowIdx: null, x: 0, y: 0 })
+    }
+
+    document.addEventListener('click', handleClickOutside)
+    document.addEventListener('keydown', handleEscape)
+    window.addEventListener('scroll', handleScroll, true)
+    if (tableWrapperRef.current) {
+      tableWrapperRef.current.addEventListener('scroll', handleScroll)
+    }
+
+    return () => {
+      document.removeEventListener('click', handleClickOutside)
+      document.removeEventListener('keydown', handleEscape)
+      window.removeEventListener('scroll', handleScroll, true)
+      if (tableWrapperRef.current) {
+        tableWrapperRef.current.removeEventListener('scroll', handleScroll)
+      }
+    }
+  }, [rowMenu.isOpen])
 
   const handleCellChange = (rowIdx, col, value) => {
     const newData = [...localData]
@@ -122,6 +161,17 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
     setIsModified(true)
     onDataUpdated(newData)
     showNotification('Строка скопирована!', 'success')
+  }
+
+  const openRowMenu = (rowIdx, clientX, clientY) => {
+    if (!tableWrapperRef.current) return
+    const wrapper = tableWrapperRef.current
+    const rect = wrapper.getBoundingClientRect()
+
+    const x = clientX - rect.left + wrapper.scrollLeft
+    const y = clientY - rect.top + wrapper.scrollTop
+
+    setRowMenu({ isOpen: true, rowIdx, x, y })
   }
 
   // Получить уникальные значения для столбца (для автозаполнения)
@@ -375,7 +425,7 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
           onClose={() => setShowAddColumnModal(false)}
           onAdd={handleAddColumn}
         />
-        <div className="table-wrapper">
+        <div className="table-wrapper" ref={tableWrapperRef}>
           <table className="data-table">
             <thead>
               <tr>
@@ -424,44 +474,25 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
             </thead>
             <tbody>
               {localData.map((row, rowIdx) => (
-                <tr 
+                <tr
                   key={rowIdx}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    openRowMenu(rowIdx, e.clientX, e.clientY)
+                  }}
                 >
                   <td className="row-header-cell">
-                    <div className="row-controls">
-                      <button
-                        className="row-control-btn move-up"
-                        onClick={() => handleMoveRowUp(rowIdx)}
-                        disabled={rowIdx === 0}
-                        title="Переместить вверх"
-                      >
-                        ↑
-                      </button>
-                      <button
-                        className="row-control-btn move-down"
-                        onClick={() => handleMoveRowDown(rowIdx)}
-                        disabled={rowIdx === localData.length - 1}
-                        title="Переместить вниз"
-                      >
-                        ↓
-                      </button>
-                      <button
-                        className="row-control-btn duplicate"
-                        onClick={() => handleDuplicateRow(rowIdx)}
-                        title="Копировать строку"
-                      >
-                        📋
-                      </button>
-                      {localData.length > 1 && (
-                        <button
-                          className="row-control-btn delete"
-                          onClick={() => handleDeleteRow(rowIdx)}
-                          title="Удалить строку"
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </div>
+                    <button
+                      type="button"
+                      className="row-actions-btn"
+                      title="Действия со строкой"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openRowMenu(rowIdx, e.clientX, e.clientY)
+                      }}
+                    >
+                      ⋯
+                    </button>
                   </td>
                   {localColumns.map(col => (
                     <td key={col}>
@@ -478,6 +509,58 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
               ))}
             </tbody>
           </table>
+          {rowMenu.isOpen && rowMenu.rowIdx !== null && (
+            <div
+              className="row-menu"
+              style={{ left: rowMenu.x, top: rowMenu.y }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                className={`row-menu-item ${rowMenu.rowIdx === 0 ? 'disabled' : ''}`}
+                onClick={() => {
+                  handleMoveRowUp(rowMenu.rowIdx)
+                  setRowMenu({ isOpen: false, rowIdx: null, x: 0, y: 0 })
+                }}
+                disabled={rowMenu.rowIdx === 0}
+              >
+                🔼 Вверх
+              </button>
+              <button
+                type="button"
+                className={`row-menu-item ${rowMenu.rowIdx === localData.length - 1 ? 'disabled' : ''}`}
+                onClick={() => {
+                  handleMoveRowDown(rowMenu.rowIdx)
+                  setRowMenu({ isOpen: false, rowIdx: null, x: 0, y: 0 })
+                }}
+                disabled={rowMenu.rowIdx === localData.length - 1}
+              >
+                🔽 Вниз
+              </button>
+              <button
+                type="button"
+                className="row-menu-item"
+                onClick={() => {
+                  handleDuplicateRow(rowMenu.rowIdx)
+                  setRowMenu({ isOpen: false, rowIdx: null, x: 0, y: 0 })
+                }}
+              >
+                📋 Копировать
+              </button>
+              {localData.length > 1 && (
+                <button
+                  type="button"
+                  className="row-menu-item danger"
+                  onClick={() => {
+                    handleDeleteRow(rowMenu.rowIdx)
+                    setRowMenu({ isOpen: false, rowIdx: null, x: 0, y: 0 })
+                  }}
+                >
+                  ✕ Удалить
+                </button>
+              )}
+            </div>
+          )}
           {/* Datalists для автозаполнения */}
           {localColumns.map(col => (
             <datalist key={`datalist-${col}`} id={`datalist-${col}`}>
