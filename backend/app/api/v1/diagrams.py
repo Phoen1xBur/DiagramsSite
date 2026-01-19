@@ -29,8 +29,13 @@ async def create_diagram(
     if not data_file:
         raise HTTPException(status_code=404, detail="Файл данных не найден")
     
-    # Если указан project_id, проверяем права доступа
-    if project_id and current_user:
+    # Для авторизованных пользователей обрабатываем project_id
+    if current_user:
+        # Если project_id не указан, используем project_id из файла данных
+        if not project_id:
+            project_id = data_file.project_id
+        
+        # Проверяем права доступа к проекту
         project = db.query(Project).filter(
             Project.id == project_id,
             Project.user_id == current_user.id
@@ -40,6 +45,10 @@ async def create_diagram(
         
         # Проверяем лимит диаграмм
         check_diagram_limit(current_user, project_id, db)
+    else:
+        # Для неавторизованных пользователей используем project_id из файла
+        if not project_id:
+            project_id = data_file.project_id
     
     # Генерируем HTML диаграммы
     chart_html = create_sunburst_chart(
@@ -53,6 +62,7 @@ async def create_diagram(
     )
     
     # Создаем диаграмму
+    # project_id уже гарантированно установлен выше
     db_diagram = Diagram(
         data_file_id=diagram.data_file_id,
         name=diagram.name,
@@ -63,7 +73,7 @@ async def create_diagram(
         show_zero_values=1 if diagram.show_zero_values else 0,
         chart_html=chart_html,
         user_id=current_user.id if current_user else None,
-        project_id=project_id if project_id else (data_file.project_id if data_file.project_id else None),
+        project_id=project_id,  # обязательное поле
         is_anonymous=current_user is None
     )
     

@@ -33,7 +33,7 @@ async def upload_file(
 ):
     """
     Загружает Excel или CSV файл.
-    Для авторизованных пользователей: сохраняет в БД и привязывает к пользователю.
+    Для авторизованных пользователей: сохраняет в БД и привязывает к пользователю и проекту.
     Для неавторизованных: сохраняет только во временной сессии Redis, файл физически удаляется.
     """
     # Получаем или создаем session_id для неавторизованных пользователей
@@ -48,14 +48,35 @@ async def upload_file(
     
     file_path = None
     try:
-        # Если указан project_id, проверяем права доступа и лимиты
-        if project_id and current_user:
-            project = db.query(Project).filter(
-                Project.id == project_id,
-                Project.user_id == current_user.id
-            ).first()
-            if not project:
-                raise HTTPException(status_code=404, detail="Проект не найден")
+        # Для авторизованных пользователей обрабатываем project_id
+        if current_user:
+            # Если project_id не указан, создаем или используем дефолтный проект
+            if not project_id:
+                # Ищем первый существующий проект пользователя
+                project = db.query(Project).filter(
+                    Project.user_id == current_user.id
+                ).order_by(Project.created_at.asc()).first()
+                
+                # Если проектов нет, создаем дефолтный
+                if not project:
+                    project = Project(
+                        user_id=current_user.id,
+                        name="Мой проект",
+                        description="Проект по умолчанию"
+                    )
+                    db.add(project)
+                    db.commit()
+                    db.refresh(project)
+                
+                project_id = project.id
+            else:
+                # Если project_id указан, проверяем права доступа
+                project = db.query(Project).filter(
+                    Project.id == project_id,
+                    Project.user_id == current_user.id
+                ).first()
+                if not project:
+                    raise HTTPException(status_code=404, detail="Проект не найден")
             
             # Проверяем лимит файлов
             check_file_limit(current_user, project_id, db)
@@ -90,6 +111,7 @@ async def upload_file(
         
         if current_user:
             # Авторизованный пользователь: сохраняем в БД
+            # project_id уже гарантированно установлен выше
             db_file = DataFile(
                 filename=unique_filename,
                 original_filename=file.filename,
@@ -97,7 +119,7 @@ async def upload_file(
                 columns=columns,
                 data=data,
                 user_id=current_user.id,
-                project_id=project_id if project_id else None,
+                project_id=project_id,  # обязательное поле
                 is_anonymous=False
             )
             db.add(db_file)
@@ -169,11 +191,14 @@ async def list_files(
 ):
     """
     Получает список загруженных файлов пользователя.
-    Для авторизованных: файлы из БД.
+    Для авторизованных: файлы из БД (опционально фильтруя по project_id).
     Для неавторизованных: файлы из сессии Redis.
     """
     if current_user:
-        files = db.query(DataFile).filter(DataFile.user_id == current_user.id).order_by(DataFile.created_at.desc()).all()
+        query = db.query(DataFile).filter(DataFile.user_id == current_user.id)
+        if project_id:
+            query = query.filter(DataFile.project_id == project_id)
+        files = query.order_by(DataFile.created_at.desc()).all()
         return files
     else:
         # Для неавторизованных пользователей получаем файлы из сессии

@@ -8,7 +8,7 @@ class DataFile(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # null для анонимных
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)  # null для старых файлов
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)  # обязательное поле
     filename = Column(String, nullable=False)
     original_filename = Column(String, nullable=False)
     file_type = Column(String, nullable=False)  # xlsx, csv
@@ -26,7 +26,7 @@ class Diagram(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)  # обязательное поле
     data_file_id = Column(Integer, ForeignKey("data_files.id"), nullable=False)
     name = Column(String, nullable=True)
     hierarchy_columns = Column(JSON, nullable=False)
