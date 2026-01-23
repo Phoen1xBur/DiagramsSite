@@ -438,6 +438,8 @@ function ProjectDetail() {
           onColumnsUpdated={handleColumnsUpdated}
           fileId={fileId}
           user={user}
+          isModified={isFileModified}
+          onModifiedChange={setIsFileModified}
           onFileSaved={(newFileId) => {
             handleFileSaved()
             if (newFileId) {

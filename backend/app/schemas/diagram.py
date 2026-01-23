@@ -30,6 +30,7 @@ class DiagramCreate(BaseModel):
     use_gradient: bool = True
     uniform_size: bool = False
     show_zero_values: bool = True
+    text_along_circumference: bool = False
 
 class DiagramResponse(BaseModel):
     id: int
@@ -40,6 +41,7 @@ class DiagramResponse(BaseModel):
     use_gradient: bool
     uniform_size: bool
     show_zero_values: bool
+    text_along_circumference: bool
     chart_html: Optional[str]
     created_at: datetime
     updated_at: datetime
@@ -55,4 +57,5 @@ class ChartRequest(BaseModel):
     use_gradient: bool = True
     uniform_size: bool = False
     show_zero_values: bool = True
+    text_along_circumference: bool = False
 

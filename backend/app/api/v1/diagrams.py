@@ -58,7 +58,8 @@ async def create_diagram(
         value_col=diagram.value_column,
         use_gradient=diagram.use_gradient,
         uniform_size=diagram.uniform_size,
-        show_zero_values=diagram.show_zero_values
+        show_zero_values=diagram.show_zero_values,
+        text_along_circumference=diagram.text_along_circumference
     )
     
     # Создаем диаграмму
@@ -71,6 +72,7 @@ async def create_diagram(
         use_gradient=1 if diagram.use_gradient else 0,
         uniform_size=1 if diagram.uniform_size else 0,
         show_zero_values=1 if diagram.show_zero_values else 0,
+        text_along_circumference=1 if diagram.text_along_circumference else 0,
         chart_html=chart_html,
         user_id=current_user.id if current_user else None,
         project_id=project_id,  # обязательное поле
@@ -94,6 +96,7 @@ async def create_diagram(
         use_gradient=bool(db_diagram.use_gradient),
         uniform_size=bool(db_diagram.uniform_size),
         show_zero_values=bool(db_diagram.show_zero_values),
+        text_along_circumference=bool(getattr(db_diagram, 'text_along_circumference', 0)),
         chart_html=db_diagram.chart_html,
         created_at=db_diagram.created_at,
         updated_at=db_diagram.updated_at
@@ -126,6 +129,7 @@ async def list_diagrams(
             use_gradient=bool(d.use_gradient),
             uniform_size=bool(d.uniform_size),
             show_zero_values=bool(d.show_zero_values),
+            text_along_circumference=bool(getattr(d, 'text_along_circumference', 0)),
             chart_html=d.chart_html,
             created_at=d.created_at,
             updated_at=d.updated_at
@@ -164,6 +168,7 @@ async def get_diagram(
         use_gradient=bool(diagram.use_gradient),
         uniform_size=bool(diagram.uniform_size),
         show_zero_values=bool(diagram.show_zero_values),
+        text_along_circumference=bool(getattr(diagram, 'text_along_circumference', 0)),
         chart_html=diagram.chart_html,
         created_at=diagram.created_at,
         updated_at=diagram.updated_at
@@ -201,7 +206,8 @@ async def update_diagram(
         value_col=diagram.value_column,
         use_gradient=diagram.use_gradient,
         uniform_size=diagram.uniform_size,
-        show_zero_values=diagram.show_zero_values
+        show_zero_values=diagram.show_zero_values,
+        text_along_circumference=diagram.text_along_circumference
     )
     
     # Обновляем диаграмму
@@ -212,6 +218,7 @@ async def update_diagram(
     db_diagram.use_gradient = 1 if diagram.use_gradient else 0
     db_diagram.uniform_size = 1 if diagram.uniform_size else 0
     db_diagram.show_zero_values = 1 if diagram.show_zero_values else 0
+    db_diagram.text_along_circumference = 1 if diagram.text_along_circumference else 0
     db_diagram.chart_html = chart_html
     # Обновляем user_id если пользователь авторизовался
     if current_user:
@@ -234,6 +241,7 @@ async def update_diagram(
         use_gradient=bool(db_diagram.use_gradient),
         uniform_size=bool(db_diagram.uniform_size),
         show_zero_values=bool(db_diagram.show_zero_values),
+        text_along_circumference=bool(getattr(db_diagram, 'text_along_circumference', 0)),
         chart_html=db_diagram.chart_html,
         created_at=db_diagram.created_at,
         updated_at=db_diagram.updated_at

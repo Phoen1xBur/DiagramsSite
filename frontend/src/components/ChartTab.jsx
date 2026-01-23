@@ -12,6 +12,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   const [useGradient, setUseGradient] = useState(true)
   const [uniformSize, setUniformSize] = useState(false)
   const [showZeroValues, setShowZeroValues] = useState(true)
+  const [textAlongCircumference, setTextAlongCircumference] = useState(false)
   const [chartHtml, setChartHtml] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -46,6 +47,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
           setUseGradient(chartData.useGradient !== undefined ? chartData.useGradient : true)
           setUniformSize(chartData.uniformSize || false)
           setShowZeroValues(chartData.showZeroValues !== undefined ? chartData.showZeroValues : true)
+          setTextAlongCircumference(chartData.textAlongCircumference || false)
           // Восстанавливаем порядок столбцов, если он сохранен
           if (chartData.columnOrder && chartData.columnOrder.length === columns.length) {
             setColumnOrder(chartData.columnOrder)
@@ -68,14 +70,42 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
           valueColumn,
           useGradient,
           uniformSize,
-          showZeroValues
+          showZeroValues,
+          textAlongCircumference
         }))
       } catch (e) {
         // Если не удалось сохранить (например, квота превышена), просто игнорируем
         console.warn('Не удалось сохранить настройки диаграммы в localStorage:', e)
       }
     }
-  }, [selectedColumns, columnOrder, valueColumn, useGradient, uniformSize, showZeroValues, fileId])
+  }, [selectedColumns, columnOrder, valueColumn, useGradient, uniformSize, showZeroValues, textAlongCircumference, fileId])
+
+  // Загружаем настройки сохраненной диаграммы при открытии
+  useEffect(() => {
+    if (openedDiagramId) {
+      const loadDiagramSettings = async () => {
+        try {
+          const diagramResponse = await apiClient.get(`/diagrams/${openedDiagramId}`)
+          const diagram = diagramResponse.data
+          
+          // Восстанавливаем настройки из сохраненной диаграммы
+          if (diagram.hierarchy_columns) {
+            setSelectedColumns(diagram.hierarchy_columns)
+          }
+          if (diagram.value_column !== null && diagram.value_column !== undefined) {
+            setValueColumn(diagram.value_column)
+          }
+          setUseGradient(diagram.use_gradient !== undefined ? diagram.use_gradient : true)
+          setUniformSize(diagram.uniform_size || false)
+          setShowZeroValues(diagram.show_zero_values !== undefined ? diagram.show_zero_values : true)
+          setTextAlongCircumference(diagram.text_along_circumference || false)
+        } catch (err) {
+          console.error('Ошибка загрузки настроек диаграммы:', err)
+        }
+      }
+      loadDiagramSettings()
+    }
+  }, [openedDiagramId])
 
   // Автопостроение диаграммы при открытии сохраненной
   useEffect(() => {
@@ -281,8 +311,8 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   }
 
   const handleRenderChart = async () => {
-    if (!data || data.length === 0) {
-      showNotification('Нет данных для построения диаграммы!', 'warning')
+    if (!fileId) {
+      showNotification('Необходимо сохранить файл перед построением диаграммы!', 'warning')
       return
     }
 
@@ -296,14 +326,26 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
     setChartHtml('') // Очищаем предыдущую диаграмму
 
     try {
+      // Загружаем сохраненные данные с сервера
+      const fileResponse = await apiClient.get(`/files/${fileId}`)
+      const savedData = fileResponse.data.data
+      const savedColumns = fileResponse.data.columns
+
+      if (!savedData || savedData.length === 0) {
+        showNotification('Нет данных для построения диаграммы!', 'warning')
+        setLoading(false)
+        return
+      }
+
       const response = await apiClient.post('/charts/generate', {
-        data: data,
-        columns: columns,
+        data: savedData,
+        columns: savedColumns,
         hierarchy_columns: selectedColumns,
         value_column: valueColumn || null,
         use_gradient: useGradient,
         uniform_size: uniformSize,
-        show_zero_values: showZeroValues
+        show_zero_values: showZeroValues,
+        text_along_circumference: textAlongCircumference
       })
 
       if (response.data && response.data.html) {
@@ -355,7 +397,8 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         value_column: valueColumn || null,
         use_gradient: useGradient,
         uniform_size: uniformSize,
-        show_zero_values: showZeroValues
+        show_zero_values: showZeroValues,
+        text_along_circumference: textAlongCircumference
       }
 
       await apiClient.put(`/diagrams/${openedDiagramId}`, diagramData)
@@ -386,7 +429,8 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         value_column: valueColumn || null,
         use_gradient: useGradient,
         uniform_size: uniformSize,
-        show_zero_values: showZeroValues
+        show_zero_values: showZeroValues,
+        text_along_circumference: textAlongCircumference
       }
 
       const url = projectId 
@@ -669,6 +713,23 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
                 ℹ️
               </span>
             )}
+          </label>
+          <br />
+          <label style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <input
+              type="checkbox"
+              checked={textAlongCircumference}
+              onChange={(e) => setTextAlongCircumference(e.target.checked)}
+            />
+            <span>
+              Надпись по окружности
+            </span>
+            <span 
+              style={{ cursor: 'help', color: '#666', fontSize: '14px' }}
+              title="Отображает текст вдоль окружности с изгибом и переносами строк для лучшей читаемости длинных текстов"
+            >
+              ℹ️
+            </span>
           </label>
           {!valueColumn && (
             <div style={{ 

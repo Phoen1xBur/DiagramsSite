@@ -33,7 +33,8 @@ def create_sunburst_chart(
     value_col: Optional[str] = None,
     use_gradient: bool = True,
     uniform_size: bool = False,
-    show_zero_values: bool = True
+    show_zero_values: bool = True,
+    text_along_circumference: bool = False
 ) -> str:
     """Создает sunburst диаграмму"""
     try:
@@ -110,15 +111,76 @@ def create_sunburst_chart(
             width=900,
             height=900,
             autosize=False,
+            # Добавляем поддержку word wrap в тексте диаграммы
+            annotations=[],
         )
+        
+        # Функция для разбиения длинного текста на строки с переносами
+        def wrap_text(text, max_length=12):
+            """Умный перенос текста с учетом слов - разбиваем на короткие строки для предотвращения уменьшения шрифта"""
+            if not text:
+                return text
+            text_str = str(text)
+            # Если текст короткий, возвращаем его как есть
+            if len(text_str) <= max_length:
+                return text_str
+            words = text_str.split()
+            lines = []
+            current_line = ""
+            for word in words:
+                # Если слово само по себе длиннее max_length, разбиваем его
+                if len(word) > max_length:
+                    if current_line:
+                        lines.append(current_line)
+                        current_line = ""
+                    # Разбиваем длинное слово на части
+                    for i in range(0, len(word), max_length):
+                        lines.append(word[i:i+max_length])
+                    current_line = ""
+                elif len(current_line) + len(word) + 1 <= max_length:
+                    current_line += (" " if current_line else "") + word
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    current_line = word
+            if current_line:
+                lines.append(current_line)
+            # Всегда возвращаем с переносами, если было разбиение
+            return "<br>".join(lines) if len(lines) > 1 else text_str
+        
+        # Определяем ориентацию текста
+        if text_along_circumference:
+            # Текст вдоль окружности с изгибом
+            text_orientation = 'tangential'
+            text_font_size = 16  # Фиксированный размер шрифта
+        else:
+            # Обычная радиальная ориентация
+            text_orientation = 'radial'
+            text_font_size = 12  # Фиксированный размер шрифта
+        
+        # ВАЖНО: Применяем переносы ко ВСЕМ текстам длиннее 10 символов
+        # Используем более короткие строки (max_length=12), чтобы текст точно помещался
+        if hierarchy_cols:
+            for col in hierarchy_cols:
+                if col in df.columns:
+                    # Применяем переносы ко всем текстам длиннее 10 символов
+                    df[col] = df[col].apply(lambda x: wrap_text(x, max_length=12) if len(str(x)) > 10 else str(x))
         
         fig.update_traces(
             textinfo="label",  # Только названия на секторах
             hovertemplate=hover_template,
-            textfont=dict(size=11, family="Arial, sans-serif"),
-            insidetextorientation='radial',
+            textfont=dict(size=text_font_size, family="Arial, sans-serif", color="black"),
+            insidetextorientation=text_orientation,
             branchvalues='total',
             maxdepth=len(hierarchy_cols),
+        )
+        
+        # Устанавливаем фиксированный размер шрифта, но НЕ скрываем текст
+        # Используем mode="show" чтобы показывать весь текст, даже если он не помещается идеально
+        fig.update_layout(
+            font=dict(family="Arial, sans-serif", size=text_font_size),
+            # Показываем весь текст, но с минимальным размером шрифта
+            uniformtext=dict(mode="show", minsize=text_font_size),
         )
         
         html = fig.to_html(include_plotlyjs="inline", full_html=True)

@@ -34,6 +34,7 @@ class Diagram(Base):
     use_gradient = Column(Integer, default=1)
     uniform_size = Column(Integer, default=0)
     show_zero_values = Column(Integer, default=1)
+    text_along_circumference = Column(Integer, default=0)
     chart_html = Column(Text, nullable=True)
     is_anonymous = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)

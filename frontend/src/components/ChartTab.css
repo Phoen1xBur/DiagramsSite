@@ -8,6 +8,8 @@
   border-radius: 8px;
   margin-bottom: 20px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .columns-list {
@@ -28,6 +30,9 @@
   position: relative;
   border: 2px solid transparent;
   cursor: grab;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
 }
 
 .column-label:hover {
@@ -73,6 +78,9 @@
 .column-label span {
   flex: 1;
   margin-right: 8px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
 }
 
 .drag-handle {

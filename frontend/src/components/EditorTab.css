@@ -156,7 +156,7 @@
 
 .data-table th {
   background: #f8f9fa;
-  padding: 32px 12px;
+  padding: 12px;
   text-align: left;
   font-weight: 700;
   border-bottom: 3px solid #dee2e6;
@@ -169,6 +169,10 @@
   letter-spacing: 0.5px;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
   min-height: 75px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+  vertical-align: middle;
 }
 
 /* Добавляем непрозрачный барьер снизу заголовков */
@@ -202,9 +206,10 @@
   position: relative;
   z-index: 1;
   background: white;
+  overflow: visible;
 }
 
-.data-table td input {
+.data-table td textarea {
   width: 100%;
   padding: 10px 12px;
   border: 2px solid #e9ecef;
@@ -213,6 +218,23 @@
   transition: all 0.2s;
   background: white;
   font-family: inherit;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  resize: none;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.data-table td textarea:hover {
+  border-color: #ced4da;
+}
+
+.data-table td textarea:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  background: #f8f9ff;
 }
 
 .data-table td input:hover {
@@ -375,6 +397,145 @@
 .column-header {
   position: relative;
   min-width: 120px;
+  user-select: none;
+}
+
+.column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 10;
+  transition: background 0.2s;
+}
+
+.column-resize-handle:hover {
+  background: #667eea;
+}
+
+.column-resize-handle:active {
+  background: #5568d3;
+}
+
+.column-header-resize-handle {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: row-resize;
+  background: transparent;
+  z-index: 10;
+  transition: background 0.2s;
+}
+
+.column-header-resize-handle:hover {
+  background: #667eea;
+}
+
+.column-header-resize-handle:active {
+  background: #5568d3;
+}
+
+.global-header-resize-handle {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: row-resize;
+  background: transparent;
+  z-index: 10;
+  transition: background 0.2s;
+}
+
+.global-header-resize-handle:hover {
+  background: #667eea;
+}
+
+.global-header-resize-handle:active {
+  background: #5568d3;
+}
+
+.row-resize-handle {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: row-resize;
+  background: transparent;
+  z-index: 10;
+  transition: background 0.2s;
+}
+
+.row-resize-handle:hover {
+  background: #667eea;
+}
+
+.row-resize-handle:active {
+  background: #5568d3;
+}
+
+.column-header.dragging {
+  opacity: 0.5;
+}
+
+.column-header.drag-over {
+  border-left: 3px solid #667eea;
+}
+
+.column-header.resizing-all {
+  background: #e3f2fd !important;
+  border: 2px solid #2196F3 !important;
+  box-shadow: 0 0 10px rgba(33, 150, 243, 0.3) !important;
+}
+
+.autocomplete-dropdown {
+  background: white;
+  border: 1px solid #e3e7ef;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  min-width: 250px;
+  width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 20000;
+  box-sizing: border-box;
+  /* Убираем min-height и max-height из CSS, используем inline стили для динамического расчета */
+}
+
+.autocomplete-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #2c3e50;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+  transition: background 0.15s;
+  box-sizing: border-box;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+}
+
+.autocomplete-item:hover,
+.autocomplete-item.selected {
+  background: #f4f6fb;
+}
+
+.autocomplete-item:first-child {
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+
+.autocomplete-item:last-child {
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
 }
 
 .column-header-content {
@@ -391,6 +552,10 @@
   border-radius: 4px;
   transition: all 0.2s;
   user-select: none;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+  line-height: 1.4;
 }
 
 .column-name-editable:hover {
