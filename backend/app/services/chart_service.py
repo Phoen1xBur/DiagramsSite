@@ -305,7 +305,13 @@ def create_sunburst_chart(
                 wrapped_labels.append(wrap_text(label_str, max_length=max_chars))
 
             # Цвета для всех узлов, чтобы не было серых сегментов
-            palette = px.colors.qualitative.Set3
+            # Палитра без желтых оттенков
+            palette = [
+                '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
+                '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
+                '#17becf', '#2e91e5', '#e15f99', '#1ca71c',
+                '#fb0d0d', '#da16ff', '#b68100'
+            ]
 
             def hex_to_rgb(color_value):
                 color_str = str(color_value).strip()
@@ -332,12 +338,10 @@ def create_sunburst_chart(
 
                 root_nodes = [node_id for node_id in original_ids if id_to_parent.get(node_id, '') in ('', None)]
                 root_id = root_nodes[0] if root_nodes else None
-                if root_id:
-                    root_children = [node_id for node_id in original_ids if id_to_parent.get(node_id, '') == root_id]
-                else:
-                    root_children = root_nodes
 
-                root_color_map = {node_id: palette[i % len(palette)] for i, node_id in enumerate(root_children)}
+                # Уникальные цвета для всех узлов первого уровня (depth == 1)
+                level_one_nodes = [node_id for node_id in original_ids if get_depth(node_id) == 1]
+                root_color_map = {node_id: palette[i % len(palette)] for i, node_id in enumerate(level_one_nodes)}
                 node_colors = [None] * len(original_ids)
 
                 def assign_color(node_id):
@@ -345,8 +349,10 @@ def create_sunburst_chart(
                     if node_colors[idx]:
                         return node_colors[idx]
                     parent_id = id_to_parent.get(node_id, '')
-                    if parent_id in root_color_map:
-                        color = root_color_map.get(node_id, palette[0]) if node_id in root_color_map else blend_with_white(root_color_map[parent_id], 0.15)
+                    if node_id in root_color_map:
+                        color = root_color_map[node_id]
+                    elif parent_id in root_color_map:
+                        color = blend_with_white(root_color_map[parent_id], 0.15)
                     elif parent_id in ('', None):
                         color = root_color_map.get(node_id, palette[0])
                     else:
@@ -368,6 +374,8 @@ def create_sunburst_chart(
             textfont=dict(size=text_font_size, family="Arial, sans-serif", color="black"),
             insidetextorientation=text_orientation,
             branchvalues='total',
+            sort=False,
+            rotation=90,
             maxdepth=len(hierarchy_cols),
         )
         if node_colors:
