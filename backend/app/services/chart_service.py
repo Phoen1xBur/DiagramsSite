@@ -1,3 +1,4 @@
+import math
 import pandas as pd
 import plotly.express as px
 import logging
@@ -34,7 +35,9 @@ def create_sunburst_chart(
     use_gradient: bool = True,
     uniform_size: bool = False,
     show_zero_values: bool = True,
-    text_along_circumference: bool = False
+    text_along_circumference: bool = False,
+    show_full_text: bool = False,
+    dynamic_font_size: bool = False
 ) -> str:
     """Создает sunburst диаграмму"""
     try:
@@ -47,6 +50,8 @@ def create_sunburst_chart(
         for col in hierarchy_cols:
             if col in df.columns:
                 df[col] = df[col].astype(str).replace(['nan', 'None', 'NaN'], '').fillna("")
+                # Заполняем пустые значения, чтобы не было частичных путей
+                df[col] = df[col].replace('', 'N/A')
         
         # Обработка столбца значений
         use_value_col = None
@@ -111,6 +116,10 @@ def create_sunburst_chart(
         else:
             color_col = hierarchy_cols[-1] if hierarchy_cols else None
         
+        # Определяем режим суммирования значений
+        # Используем total, так как значения заданы только для листьев
+        branchvalues_mode = 'total'
+
         # Создание диаграммы
         fig = px.sunburst(
             df,
@@ -132,48 +141,28 @@ def create_sunburst_chart(
         else:
             hover_template = '<b>%{label}</b><br><b>Путь:</b> %{parent}<br><extra></extra>'
         
-        # Размер диаграммы: базовый + запас для длинных подписей и большого числа лепестков
-        max_label_len = 0
-        for col in hierarchy_cols:
-            if col in df.columns:
-                max_label_len = max(max_label_len, df[col].astype(str).map(len).max())
+        # Количество уровней иерархии (колец)
+        levels_count = max(1, len(hierarchy_cols))
+        
+        # Количество уникальных листовых узлов (конечных лепестков)
         leaf_count = df.drop_duplicates(subset=hierarchy_cols).shape[0] if hierarchy_cols else len(df)
-        base_size = 900
-        extra_size = min(700, max(0, (max_label_len - 12) * 8) + max(0, leaf_count - 20) * 5)
-        chart_size = base_size + extra_size
-
-        fig.update_layout(
-            hovermode='closest',
-            hoverlabel=dict(bgcolor="white", font_size=12, font_family="Arial", namelength=-1, bordercolor="black"),
-            margin=dict(t=20, l=20, r=20, b=20),
-            font=dict(family="Arial, sans-serif", size=11),
-            paper_bgcolor='white',
-            plot_bgcolor='white',
-            width=chart_size,
-            height=chart_size,
-            autosize=False,
-            annotations=[],
-        )
         
         # Функция для разбиения длинного текста на строки с переносами
         def wrap_text(text, max_length=12):
-            """Умный перенос текста с учетом слов - разбиваем на короткие строки для предотвращения уменьшения шрифта"""
+            """Умный перенос текста с учетом слов"""
             if not text:
                 return text
             text_str = str(text)
-            # Если текст короткий, возвращаем его как есть
             if len(text_str) <= max_length:
                 return text_str
             words = text_str.split()
             lines = []
             current_line = ""
             for word in words:
-                # Если слово само по себе длиннее max_length, разбиваем его
                 if len(word) > max_length:
                     if current_line:
                         lines.append(current_line)
                         current_line = ""
-                    # Разбиваем длинное слово на части
                     for i in range(0, len(word), max_length):
                         lines.append(word[i:i+max_length])
                     current_line = ""
@@ -185,26 +174,72 @@ def create_sunburst_chart(
                     current_line = word
             if current_line:
                 lines.append(current_line)
-            # Всегда возвращаем с переносами, если было разбиение
             return "<br>".join(lines) if len(lines) > 1 else text_str
         
-        # Определяем ориентацию текста
+        def count_lines(text):
+            """Считает количество строк в тексте с <br>"""
+            if not text:
+                return 1
+            return text.count("<br>") + 1
+        
+        def truncate_text(text, max_lines):
+            """Обрезает текст до max_lines строк, добавляя '...' если обрезано"""
+            if not text or max_lines < 1:
+                return text
+            lines = text.split("<br>")
+            if len(lines) <= max_lines:
+                return text
+            # Берём первые max_lines-1 строк и добавляем последнюю обрезанную с "..."
+            truncated_lines = lines[:max_lines]
+            # Укорачиваем последнюю строку и добавляем "..."
+            last_line = truncated_lines[-1]
+            if len(last_line) > 3:
+                truncated_lines[-1] = last_line[:-3] + "..."
+            else:
+                truncated_lines[-1] = "..."
+            return "<br>".join(truncated_lines)
+        
+        # === НАСТРОЙКА ШРИФТА ===
+        FONT_SIZE_BASE = 22                 # Базовый размер шрифта
+        LINE_HEIGHT_RATIO = 1.3             # Межстрочный интервал
+        
+        # Ширина символа относительно размера шрифта
+        # Для кириллицы в Arial средняя ширина ~0.35-0.4 от размера шрифта
+        CHAR_WIDTH_RATIO = 0.35
+        
+        # Текст занимает 98% ширины лепестка (по 1% отступ с каждой стороны)
+        # Plotly сам добавит небольшие отступы при рендеринге
+        TEXT_FILL_RATIO = 0.98
+        
+        text_font_size = FONT_SIZE_BASE
+        char_px = text_font_size * CHAR_WIDTH_RATIO  # Ширина одного символа в пикселях
+        
         if text_along_circumference:
-            # Текст вдоль окружности с изгибом
             text_orientation = 'tangential'
-            text_font_size = 16
         else:
-            # Авто-ориентация лучше центрирует текст внутри лепестка
             text_orientation = 'auto'
-            text_font_size = 12
-        # Снижаем размер шрифта при большом количестве лепестков
-        if leaf_count > 20:
-            text_font_size = max(10, text_font_size - int((leaf_count - 20) / 20))
 
-        # Применяем переносы к отображаемому тексту (без изменения данных)
+        # === ШАГ 1: Определяем базовый размер диаграммы ===
+        # Минимальная толщина кольца в пикселях
+        MIN_RING_THICKNESS = 80
+        
+        # Базовый размер = количество колец * минимальная толщина * 2 (диаметр)
+        base_chart_size = (levels_count + 1) * MIN_RING_THICKNESS * 2
+        
+        # Добавляем размер в зависимости от количества лепестков (больше лепестков = нужны длиннее дуги)
+        extra_for_leaves = min(960, leaf_count * 12)
+        
+        chart_size = max(800, base_chart_size + extra_for_leaves)
+        
+        # Толщина одного кольца
+        ring_thickness = chart_size / 2 / (levels_count + 1)
+
+        # === ШАГ 2: Получаем данные из графика и рассчитываем переносы ===
         wrapped_labels = None
         raw_labels = None
         node_colors = None
+        max_lines_per_level = {}  # {level: max_lines}
+        
         if fig.data and len(fig.data) > 0:
             trace = fig.data[0]
             original_labels = list(trace.labels)
@@ -213,12 +248,7 @@ def create_sunburst_chart(
             original_values = list(trace.values) if getattr(trace, "values", None) is not None else None
             raw_labels = original_labels
 
-            # Подготовка данных для оценки доступной ширины текста
-            levels_count = max(1, len(hierarchy_cols))
-            ring_thickness = (chart_size / 2) / (levels_count + 1)
-            char_px = text_font_size * 0.6
-            arc_padding_ratio = 0.8
-
+            # Строим карты для навигации по дереву
             if original_ids:
                 id_to_index = {node_id: idx for idx, node_id in enumerate(original_ids)}
                 id_to_parent = {node_id: original_parents[idx] for idx, node_id in enumerate(original_ids)}
@@ -267,88 +297,226 @@ def create_sunburst_chart(
                         parent_id = id_to_parent.get(parent_id, '')
                     return depth
 
-                def get_root_total():
-                    return root_total
+                def get_node_value(node_id):
+                    return value_cache.get(node_id, 1.0)
             else:
-                # Фолбэк без ids
                 id_to_index = {idx: idx for idx in range(len(original_labels))}
+                root_total = sum(original_values) if original_values else len(original_labels) or 1.0
 
                 def get_depth(_):
                     return 0
 
-                def get_root_total():
-                    if original_values:
-                        return sum(original_values) or 1.0
-                    return len(original_labels) or 1.0
+                def get_node_value(idx):
+                    if original_values and idx < len(original_values):
+                        return float(original_values[idx]) or 1.0
+                    return 1.0
 
+            # Рассчитываем переносы для каждого узла на основе длины дуги в пикселях
             wrapped_labels = []
+            node_depths = []
+            
             for idx, (label, parent) in enumerate(zip(original_labels, original_parents)):
                 label_str = str(label)
+                
                 if parent == '' or parent is None:
-                    # Центр: рассчитываем ширину центра и переносим по словам
-                    center_width = ring_thickness * 2.0 * arc_padding_ratio
-                    max_chars = max(3, int(center_width / max(1, char_px)))
-                    wrapped_labels.append(wrap_text(label_str, max_length=max_chars))
-                    continue
+                    # Корневой узел (центр) - диаметр центра примерно = ring_thickness
+                    center_width = ring_thickness * TEXT_FILL_RATIO
+                    max_chars = max(15, int(center_width / char_px))
+                    depth = 0
+                else:
+                    # Рассчитываем длину дуги для этого сектора
+                    if original_ids:
+                        node_value = get_node_value(original_ids[idx])
+                        depth = get_depth(original_ids[idx])
+                    else:
+                        node_value = get_node_value(idx)
+                        depth = 0
+                    
+                    # Доля сектора от полного круга
+                    sector_fraction = node_value / max(1.0, root_total)
+                    
+                    # Угол сектора в радианах
+                    sector_angle = sector_fraction * 2 * math.pi
+                    
+                    # Радиус до середины кольца на этой глубине
+                    radius_to_middle = ring_thickness * (depth + 0.5)
+                    
+                    # Длина дуги в пикселях (на середине кольца)
+                    arc_length = sector_angle * radius_to_middle * TEXT_FILL_RATIO
+                    
+                    # Максимальное количество символов в строке
+                    # Минимум 12 символов, чтобы короткие слова не разбивались
+                    max_chars = max(12, int(arc_length / char_px))
+                
+                wrapped = wrap_text(label_str, max_length=max_chars)
+                wrapped_labels.append(wrapped)
+                node_depths.append(depth)
+                
+                # Считаем максимальное количество строк на каждом уровне
+                lines = count_lines(wrapped)
+                if depth not in max_lines_per_level:
+                    max_lines_per_level[depth] = lines
+                else:
+                    max_lines_per_level[depth] = max(max_lines_per_level[depth], lines)
 
-                node_value = 1.0
-                if original_ids:
-                    node_value = value_cache.get(original_ids[idx], 1.0)
-                elif original_values and idx < len(original_values):
-                    node_value = float(original_values[idx]) or 1.0
-                root_total = get_root_total()
-                angle = (node_value / max(1.0, root_total)) * (2 * 3.14159)
-                depth = get_depth(original_ids[idx] if original_ids else idx)
-                radius = ring_thickness * (depth + 0.5)
-                arc_length = angle * radius * arc_padding_ratio
-                max_chars = max(3, int(arc_length / max(1, char_px)))
-                wrapped_labels.append(wrap_text(label_str, max_length=max_chars))
+        # === ШАГ 3: Обработка текста в зависимости от режима ===
+        RING_PADDING = 10  # Отступ сверху и снизу от текста в пикселях
+        FONT_SIZE_MIN = 12  # Минимальный размер шрифта
+        FONT_SIZE_MAX = 60  # Максимальный размер шрифта
+        
+        # Массив размеров шрифта для каждого сектора (динамический размер)
+        font_sizes = []
+        
+        if show_full_text:
+            # Режим "Отображать весь текст" - увеличиваем диаграмму чтобы текст влез
+            # Максимальный размер диаграммы в этом режиме
+            MAX_FULL_TEXT_SIZE = 3000
+            
+            # Находим максимальное количество строк на любом уровне
+            max_lines_any_level = max(max_lines_per_level.values()) if max_lines_per_level else 1
+            
+            # Рассчитываем нужную толщину кольца
+            line_height_px = text_font_size * LINE_HEIGHT_RATIO
+            needed_thickness = max_lines_any_level * line_height_px + RING_PADDING * 2
+            
+            # Рассчитываем нужный размер диаграммы
+            needed_chart_size = int(needed_thickness * (levels_count + 1) * 2 + 40)
+            
+            # Ограничиваем максимальный размер
+            chart_size = min(needed_chart_size, MAX_FULL_TEXT_SIZE)
+            ring_thickness = chart_size / 2 / (levels_count + 1)
+            
+            # Если текст всё ещё не влезает - уменьшаем шрифт
+            available_height = ring_thickness - RING_PADDING * 2
+            if max_lines_any_level * line_height_px > available_height:
+                # Рассчитываем нужный размер шрифта чтобы текст влез
+                needed_line_height = available_height / max_lines_any_level
+                text_font_size = max(FONT_SIZE_MIN, int(needed_line_height / LINE_HEIGHT_RATIO))
+        else:
+            # Обычный режим - обрезаем текст который не влезает
+            # Высота строки при минимальном шрифте (Plotly может уменьшить до этого размера)
+            min_line_height = FONT_SIZE_MIN * LINE_HEIGHT_RATIO
+            
+            # Сколько строк максимум влезает в кольцо при минимальном шрифте
+            max_lines_fit = int((ring_thickness - RING_PADDING * 2) / min_line_height)
+            max_lines_fit = max(2, max_lines_fit)  # Минимум 2 строки
+            
+            # Обрезаем текст который не влезает
+            if wrapped_labels:
+                for idx in range(len(wrapped_labels)):
+                    lines = count_lines(wrapped_labels[idx])
+                    if lines > max_lines_fit:
+                        wrapped_labels[idx] = truncate_text(wrapped_labels[idx], max_lines_fit)
 
-            # Цвета для всех узлов, чтобы не было серых сегментов
-            # Палитра без желтых оттенков
-            palette = [
-                '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
-                '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
-                '#17becf', '#2e91e5', '#e15f99', '#1ca71c',
-                '#fb0d0d', '#da16ff', '#b68100'
-            ]
+        # === ШАГ 4: Рассчитываем динамический размер шрифта для каждого сектора ===
+        if dynamic_font_size:
+            # Коэффициент для расчёта размера шрифта (меньше чем LINE_HEIGHT_RATIO, 
+            # т.к. Plotly эффективнее использует пространство)
+            FONT_CALC_RATIO = 1.1
+            
+            if wrapped_labels and node_depths:
+                for idx, wrapped in enumerate(wrapped_labels):
+                    lines = count_lines(wrapped)
+                    depth = node_depths[idx] if idx < len(node_depths) else 0
+                    
+                    # Доступная высота зависит от глубины узла
+                    # Внутренние кольца (ближе к центру) имеют больше вертикального пространства
+                    if depth == 0:
+                        # Центральный круг - используем всю высоту
+                        available_height = ring_thickness * 2
+                    elif depth == 1:
+                        # Первое кольцо - больше пространства
+                        available_height = ring_thickness * 1.5
+                    else:
+                        # Внешние кольца
+                        available_height = ring_thickness
+                    
+                    available_height -= RING_PADDING * 2
+                    
+                    # Рассчитываем максимальный размер шрифта который влезет по высоте
+                    if lines > 0:
+                        max_line_height = available_height / lines
+                        max_font_by_height = max_line_height / FONT_CALC_RATIO
+                    else:
+                        max_font_by_height = FONT_SIZE_MAX
+                    
+                    # Ограничиваем размер шрифта
+                    font_size = min(FONT_SIZE_MAX, max(FONT_SIZE_MIN, int(max_font_by_height)))
+                    font_sizes.append(font_size)
+        
+        # Если font_sizes пустой или dynamic_font_size выключен, используем базовый размер
+        if not font_sizes:
+            font_sizes = None
 
-            def hex_to_rgb(color_value):
-                color_str = str(color_value).strip()
-                if color_str.startswith('rgb'):
-                    rgb_part = color_str[color_str.find('(') + 1:color_str.find(')')]
-                    channels = [c.strip() for c in rgb_part.split(',')][:3]
-                    return tuple(int(float(c)) for c in channels)
-                color_hex = color_str.lstrip('#')
-                return tuple(int(color_hex[i:i+2], 16) for i in (0, 2, 4))
+        fig.update_layout(
+            hovermode='closest',
+            hoverlabel=dict(bgcolor="white", font_size=12, font_family="Arial", namelength=-1, bordercolor="black"),
+            margin=dict(t=20, l=20, r=20, b=20),
+            font=dict(family="Arial, sans-serif", size=text_font_size),
+            paper_bgcolor='white',
+            plot_bgcolor='white',
+            width=chart_size,
+            height=chart_size,
+            autosize=False,
+            annotations=[],
+        )
 
-            def rgb_to_hex(rgb):
-                return '#%02x%02x%02x' % rgb
+        # === ШАГ 3: Назначаем цвета для узлов ===
+        # Палитра без желтых оттенков
+        palette = [
+            '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
+            '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
+            '#17becf', '#2e91e5', '#e15f99', '#1ca71c',
+            '#fb0d0d', '#da16ff', '#b68100'
+        ]
 
-            def blend_with_white(color_hex, ratio):
-                r, g, b = hex_to_rgb(color_hex)
-                r = int(r + (255 - r) * ratio)
-                g = int(g + (255 - g) * ratio)
-                b = int(b + (255 - b) * ratio)
-                return rgb_to_hex((r, g, b))
+        def hex_to_rgb(color_value):
+            color_str = str(color_value).strip()
+            if color_str.startswith('rgb'):
+                rgb_part = color_str[color_str.find('(') + 1:color_str.find(')')]
+                channels = [c.strip() for c in rgb_part.split(',')][:3]
+                return tuple(int(float(c)) for c in channels)
+            color_hex = color_str.lstrip('#')
+            return tuple(int(color_hex[i:i+2], 16) for i in (0, 2, 4))
 
-            if original_ids:
-                id_to_parent = {node_id: original_parents[idx] for idx, node_id in enumerate(original_ids)}
-                id_to_index = {node_id: idx for idx, node_id in enumerate(original_ids)}
+        def rgb_to_hex(rgb):
+            return '#%02x%02x%02x' % rgb
 
-                root_nodes = [node_id for node_id in original_ids if id_to_parent.get(node_id, '') in ('', None)]
-                root_id = root_nodes[0] if root_nodes else None
+        def blend_with_white(color_hex, ratio):
+            r, g, b = hex_to_rgb(color_hex)
+            r = int(r + (255 - r) * ratio)
+            g = int(g + (255 - g) * ratio)
+            b = int(b + (255 - b) * ratio)
+            return rgb_to_hex((r, g, b))
+
+        if fig.data and len(fig.data) > 0:
+            trace = fig.data[0]
+            original_ids_for_colors = list(trace.ids) if getattr(trace, "ids", None) is not None else None
+            original_parents_for_colors = list(trace.parents)
+            original_labels_for_colors = list(trace.labels)
+            
+            if original_ids_for_colors:
+                id_to_parent_c = {node_id: original_parents_for_colors[idx] for idx, node_id in enumerate(original_ids_for_colors)}
+                id_to_index_c = {node_id: idx for idx, node_id in enumerate(original_ids_for_colors)}
+
+                def get_depth_c(node_id):
+                    depth = 0
+                    parent_id = id_to_parent_c.get(node_id, '')
+                    while parent_id:
+                        depth += 1
+                        parent_id = id_to_parent_c.get(parent_id, '')
+                    return depth
 
                 # Уникальные цвета для всех узлов первого уровня (depth == 1)
-                level_one_nodes = [node_id for node_id in original_ids if get_depth(node_id) == 1]
+                level_one_nodes = [node_id for node_id in original_ids_for_colors if get_depth_c(node_id) == 1]
                 root_color_map = {node_id: palette[i % len(palette)] for i, node_id in enumerate(level_one_nodes)}
-                node_colors = [None] * len(original_ids)
+                node_colors = [None] * len(original_ids_for_colors)
 
                 def assign_color(node_id):
-                    idx = id_to_index[node_id]
+                    idx = id_to_index_c[node_id]
                     if node_colors[idx]:
                         return node_colors[idx]
-                    parent_id = id_to_parent.get(node_id, '')
+                    parent_id = id_to_parent_c.get(node_id, '')
                     if node_id in root_color_map:
                         color = root_color_map[node_id]
                     elif parent_id in root_color_map:
@@ -361,19 +529,25 @@ def create_sunburst_chart(
                     node_colors[idx] = color
                     return color
 
-                for node_id in original_ids:
+                for node_id in original_ids_for_colors:
                     assign_color(node_id)
             else:
-                node_colors = [palette[i % len(palette)] for i in range(len(original_labels))]
+                node_colors = [palette[i % len(palette)] for i in range(len(original_labels_for_colors))]
+        
+        # Используем динамический размер шрифта если рассчитан, иначе фиксированный
+        if font_sizes:
+            text_font_config = dict(size=font_sizes, family="Arial, sans-serif", color="black")
+        else:
+            text_font_config = dict(size=text_font_size, family="Arial, sans-serif", color="black")
         
         fig.update_traces(
             text=wrapped_labels if wrapped_labels else None,
             textinfo="text",
             hovertext=raw_labels if raw_labels else None,
             hovertemplate=hover_template.replace('%{label}', '%{hovertext}') if raw_labels else hover_template,
-            textfont=dict(size=text_font_size, family="Arial, sans-serif", color="black"),
+            textfont=text_font_config,
             insidetextorientation=text_orientation,
-            branchvalues='total',
+            branchvalues=branchvalues_mode,
             sort=False,
             rotation=90,
             maxdepth=len(hierarchy_cols),
@@ -381,13 +555,14 @@ def create_sunburst_chart(
         if node_colors:
             fig.update_traces(marker=dict(colors=node_colors))
         
-        # Устанавливаем фиксированный размер шрифта, но НЕ скрываем текст
-        # Используем mode="show" чтобы показывать весь текст, даже если он не помещается идеально
-        fig.update_layout(
-            font=dict(family="Arial, sans-serif", size=text_font_size),
-            # Пытаемся показывать текст, но уменьшаем при нехватке места
-            uniformtext=dict(mode="show", minsize=max(8, text_font_size - 3)),
-        )
+        # Если используем динамические размеры - не применяем uniformtext 
+        # (он нормализует все размеры и конфликтует с массивом font_sizes)
+        if not font_sizes:
+            # Только для фиксированного размера: Plotly уменьшит шрифт где нужно
+            fig.update_layout(
+                font=dict(family="Arial, sans-serif", size=text_font_size),
+                uniformtext=dict(mode="show", minsize=FONT_SIZE_MIN),
+            )
         
         html = fig.to_html(include_plotlyjs="inline", full_html=True)
         logger.info(f"HTML графика сгенерирован, длина: {len(html)} символов")

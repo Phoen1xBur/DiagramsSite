@@ -18,7 +18,9 @@ async def generate_chart(request: ChartRequest):
             use_gradient=request.use_gradient,
             uniform_size=request.uniform_size,
             show_zero_values=request.show_zero_values,
-            text_along_circumference=request.text_along_circumference
+            text_along_circumference=request.text_along_circumference,
+            show_full_text=request.show_full_text,
+            dynamic_font_size=request.dynamic_font_size
         )
         
         return {"html": html}

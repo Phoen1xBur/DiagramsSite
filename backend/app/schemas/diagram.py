@@ -31,6 +31,8 @@ class DiagramCreate(BaseModel):
     uniform_size: bool = False
     show_zero_values: bool = True
     text_along_circumference: bool = False
+    show_full_text: bool = False
+    dynamic_font_size: bool = False
 
 class DiagramResponse(BaseModel):
     id: int
@@ -42,6 +44,8 @@ class DiagramResponse(BaseModel):
     uniform_size: bool
     show_zero_values: bool
     text_along_circumference: bool
+    show_full_text: bool
+    dynamic_font_size: bool
     chart_html: Optional[str]
     created_at: datetime
     updated_at: datetime
@@ -58,4 +62,6 @@ class ChartRequest(BaseModel):
     uniform_size: bool = False
     show_zero_values: bool = True
     text_along_circumference: bool = False
+    show_full_text: bool = False
+    dynamic_font_size: bool = False
 

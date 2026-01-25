@@ -13,6 +13,8 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   const [uniformSize, setUniformSize] = useState(false)
   const [showZeroValues, setShowZeroValues] = useState(true)
   const [textAlongCircumference, setTextAlongCircumference] = useState(false)
+  const [showFullText, setShowFullText] = useState(false)
+  const [dynamicFontSize, setDynamicFontSize] = useState(false)
   const [chartHtml, setChartHtml] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -48,6 +50,8 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
           setUniformSize(chartData.uniformSize || false)
           setShowZeroValues(chartData.showZeroValues !== undefined ? chartData.showZeroValues : true)
           setTextAlongCircumference(chartData.textAlongCircumference || false)
+          setShowFullText(chartData.showFullText || false)
+          setDynamicFontSize(chartData.dynamicFontSize || false)
           // Восстанавливаем порядок столбцов, если он сохранен
           if (chartData.columnOrder && chartData.columnOrder.length === columns.length) {
             setColumnOrder(chartData.columnOrder)
@@ -71,14 +75,16 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
           useGradient,
           uniformSize,
           showZeroValues,
-          textAlongCircumference
+          textAlongCircumference,
+          showFullText,
+          dynamicFontSize
         }))
       } catch (e) {
         // Если не удалось сохранить (например, квота превышена), просто игнорируем
         console.warn('Не удалось сохранить настройки диаграммы в localStorage:', e)
       }
     }
-  }, [selectedColumns, columnOrder, valueColumn, useGradient, uniformSize, showZeroValues, textAlongCircumference, fileId])
+  }, [selectedColumns, columnOrder, valueColumn, useGradient, uniformSize, showZeroValues, textAlongCircumference, showFullText, dynamicFontSize, fileId])
 
   // Загружаем настройки сохраненной диаграммы при открытии
   useEffect(() => {
@@ -99,6 +105,8 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
           setUniformSize(diagram.uniform_size || false)
           setShowZeroValues(diagram.show_zero_values !== undefined ? diagram.show_zero_values : true)
           setTextAlongCircumference(diagram.text_along_circumference || false)
+          setShowFullText(diagram.show_full_text || false)
+          setDynamicFontSize(diagram.dynamic_font_size || false)
         } catch (err) {
           console.error('Ошибка загрузки настроек диаграммы:', err)
         }
@@ -345,7 +353,9 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         use_gradient: useGradient,
         uniform_size: uniformSize,
         show_zero_values: showZeroValues,
-        text_along_circumference: textAlongCircumference
+        text_along_circumference: textAlongCircumference,
+        show_full_text: showFullText,
+        dynamic_font_size: dynamicFontSize
       })
 
       if (response.data && response.data.html) {
@@ -398,7 +408,9 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         use_gradient: useGradient,
         uniform_size: uniformSize,
         show_zero_values: showZeroValues,
-        text_along_circumference: textAlongCircumference
+        text_along_circumference: textAlongCircumference,
+        show_full_text: showFullText,
+        dynamic_font_size: dynamicFontSize
       }
 
       await apiClient.put(`/diagrams/${openedDiagramId}`, diagramData)
@@ -430,7 +442,9 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         use_gradient: useGradient,
         uniform_size: uniformSize,
         show_zero_values: showZeroValues,
-        text_along_circumference: textAlongCircumference
+        text_along_circumference: textAlongCircumference,
+        show_full_text: showFullText,
+        dynamic_font_size: dynamicFontSize
       }
 
       const url = projectId 
@@ -660,40 +674,6 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
             )}
           </label>
           <br />
-          <label style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <input
-              type="checkbox"
-              checked={showZeroValues}
-              onChange={(e) => setShowZeroValues(e.target.checked)}
-              disabled={!valueColumn}
-            />
-            <span style={{ opacity: !valueColumn ? 0.5 : 1 }}>
-              Отображать нулевые значения {!valueColumn && '*'}
-            </span>
-            {!valueColumn && (
-              <span 
-                style={{ cursor: 'help', color: '#666', fontSize: '14px' }}
-                title="Требуется выбрать столбец значений"
-              >
-                ℹ️
-              </span>
-            )}
-          </label>
-          {valueColumn && showZeroValues && (
-            <div style={{ 
-              marginTop: '8px',
-              marginLeft: '25px', 
-              fontSize: '11px', 
-              color: '#e67e22',
-              fontStyle: 'italic',
-              backgroundColor: '#fff3cd',
-              padding: '8px',
-              borderRadius: '4px',
-              border: '1px solid #ffc107'
-            }}>
-              ⚠️ <strong>Важно:</strong> Из-за ограничений библиотеки визуализации, нулевые значения будут отображаться как "1" на диаграмме (минимальный размер для отображения сектора). Реальное значение "0" будет видно при наведении.
-            </div>
-          )}
           <br />
           <label style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}>
             <input
@@ -731,6 +711,40 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
               ℹ️
             </span>
           </label>
+          <br />
+          <label style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <input
+              type="checkbox"
+              checked={showFullText}
+              onChange={(e) => setShowFullText(e.target.checked)}
+            />
+            <span>
+              Отображать весь текст
+            </span>
+            <span 
+              style={{ cursor: 'help', color: '#666', fontSize: '14px' }}
+              title="Показывает весь текст без обрезки. Внимание: может значительно увеличить размер диаграммы!"
+            >
+              ⚠️
+            </span>
+          </label>
+          <br />
+          <label style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <input
+              type="checkbox"
+              checked={dynamicFontSize}
+              onChange={(e) => setDynamicFontSize(e.target.checked)}
+            />
+            <span>
+              Динамический размер текста
+            </span>
+            <span 
+              style={{ cursor: 'help', color: '#666', fontSize: '14px' }}
+              title="Автоматически увеличивает размер шрифта там, где больше свободного пространства (внутренние сектора)"
+            >
+              ℹ️
+            </span>
+          </label>
           {!valueColumn && (
             <div style={{ 
               marginTop: '5px', 
@@ -739,7 +753,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
               fontStyle: 'italic',
               paddingLeft: '25px'
             }}>
-              * Опции с градиентом и нулевыми значениями требуют выбора столбца значений
+              * Опции с градиентом требуют выбора столбца значений
             </div>
           )}
         </div>
