@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import apiClient from '../api/client'
 import { useNotification } from '../contexts/NotificationContext'
 import AddColumnModal from './AddColumnModal'
@@ -37,7 +38,9 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
   const [draggedColumn, setDraggedColumn] = useState(null)
   const [dragOverColumn, setDragOverColumn] = useState(null)
   const [autocomplete, setAutocomplete] = useState({ show: false, rowIdx: null, col: null, suggestions: [], selectedIndex: 0 })
+  const [autocompletePosition, setAutocompletePosition] = useState(null)
   const autocompleteRef = useRef(null)
+  const autocompleteRafRef = useRef(null)
   const cellRefs = useRef({})
 
   const prevFileIdRef = useRef(fileId)
@@ -561,6 +564,106 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
     }
   }, [autocomplete.show, autocomplete.rowIdx, autocomplete.col])
 
+  const calculateAutocompletePosition = () => {
+    if (!autocomplete.show || autocomplete.rowIdx === null || autocomplete.col === null) {
+      return null
+    }
+    const cellKey = `${autocomplete.rowIdx}-${autocomplete.col}`
+    const cell = cellRefs.current[cellKey]
+    if (!cell) {
+      return null
+    }
+
+    const rect = cell.getBoundingClientRect()
+    const wrapperRect = tableWrapperRef.current?.getBoundingClientRect()
+    const viewportHeight = window.innerHeight
+    const viewportWidth = window.innerWidth
+    const margin = 6
+
+    const isVisibleInViewport = rect.bottom > 0 && rect.top < viewportHeight && rect.right > 0 && rect.left < viewportWidth
+    const isVisibleInWrapper = wrapperRect ? rect.bottom > wrapperRect.top && rect.top < wrapperRect.bottom : true
+    if (!isVisibleInViewport || !isVisibleInWrapper) {
+      return null
+    }
+
+    let spaceBelow = viewportHeight - rect.bottom - margin
+    if (wrapperRect) {
+      spaceBelow = Math.min(spaceBelow, wrapperRect.bottom - rect.bottom - margin)
+    }
+    spaceBelow = Math.max(0, spaceBelow)
+
+    let spaceAbove = rect.top - margin
+    if (wrapperRect) {
+      spaceAbove = Math.min(spaceAbove, rect.top - wrapperRect.top - margin)
+    }
+    spaceAbove = Math.max(0, spaceAbove)
+
+    const dropdownHeight = 280
+    const positionAbove = spaceBelow < dropdownHeight && spaceAbove >= dropdownHeight
+
+    let top = positionAbove ? rect.top - dropdownHeight - 2 : rect.bottom + 2
+    top = Math.max(margin, Math.min(top, viewportHeight - dropdownHeight - margin))
+
+    const maxWidth = Math.max(0, viewportWidth - margin * 2)
+    let width = Math.min(rect.width * 2, maxWidth)
+    let left = rect.left
+
+    if (left + width > viewportWidth - margin) {
+      left = Math.max(margin, viewportWidth - width - margin)
+    }
+    if (left < margin) {
+      left = margin
+      width = Math.min(width, viewportWidth - margin * 2)
+    }
+
+    return {
+      top,
+      left,
+      width,
+      height: dropdownHeight
+    }
+  }
+
+  useEffect(() => {
+    if (!autocomplete.show) {
+      setAutocompletePosition(null)
+      return
+    }
+
+    const scheduleUpdate = () => {
+      if (autocompleteRafRef.current) {
+        cancelAnimationFrame(autocompleteRafRef.current)
+      }
+      autocompleteRafRef.current = requestAnimationFrame(() => {
+        setAutocompletePosition(calculateAutocompletePosition())
+      })
+    }
+
+    scheduleUpdate()
+
+    const handlePositionChange = () => {
+      scheduleUpdate()
+    }
+
+    window.addEventListener('resize', handlePositionChange)
+    window.addEventListener('scroll', handlePositionChange, true)
+    if (tableWrapperRef.current) {
+      tableWrapperRef.current.addEventListener('scroll', handlePositionChange)
+    }
+
+    return () => {
+      if (autocompleteRafRef.current) {
+        cancelAnimationFrame(autocompleteRafRef.current)
+        autocompleteRafRef.current = null
+      }
+      window.removeEventListener('resize', handlePositionChange)
+      window.removeEventListener('scroll', handlePositionChange, true)
+      if (tableWrapperRef.current) {
+        tableWrapperRef.current.removeEventListener('scroll', handlePositionChange)
+      }
+    }
+  }, [autocomplete.show, autocomplete.rowIdx, autocomplete.col, autocomplete.suggestions.length])
+
 
   const handleDeleteColumn = (colName) => {
     if (localColumns.length <= 2) {
@@ -1004,6 +1107,10 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
                           value={row[col] || ''}
                           onChange={(e) => handleTextareaChange(rowIdx, col, e.target.value)}
                           onKeyDown={(e) => handleTextareaKeyDown(e, rowIdx, col)}
+                          onMouseDown={() => {
+                            const value = row[col] || ''
+                            handleTextareaChange(rowIdx, col, value)
+                          }}
                           onFocus={(e) => {
                             // При фокусе всегда показываем подсказки
                             const value = row[col] || ''
@@ -1054,145 +1161,53 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
                           }}
                         />
                       </div>
-                      {autocomplete.show && autocomplete.rowIdx === rowIdx && autocomplete.col === col && autocomplete.suggestions.length > 0 && (() => {
-                        const cell = cellRefs.current[`${rowIdx}-${col}`]
-                        if (!cell) {
-                          return null
-                        }
-                        
-                        // Получаем позицию ячейки относительно viewport
-                        const rect = cell.getBoundingClientRect()
-                        const wrapperRect = tableWrapperRef.current?.getBoundingClientRect()
-                        
-                        // Вычисляем доступное пространство с учетом границ wrapper и viewport
-                        const viewportHeight = window.innerHeight
-                        const viewportWidth = window.innerWidth
-                        const viewportBottom = viewportHeight
-                        const viewportTop = 0
-                        const viewportLeft = 0
-                        const viewportRight = viewportWidth
-                        
-                        // Пространство снизу: минимум из wrapper и viewport
-                        let spaceBelow = viewportBottom - rect.bottom - 10
-                        if (wrapperRect) {
-                          spaceBelow = Math.min(spaceBelow, wrapperRect.bottom - rect.bottom - 10)
-                        }
-                        spaceBelow = Math.max(0, spaceBelow)
-                        
-                        // Пространство сверху: минимум из wrapper и viewport
-                        let spaceAbove = rect.top - viewportTop - 10
-                        if (wrapperRect) {
-                          spaceAbove = Math.min(spaceAbove, rect.top - wrapperRect.top - 10)
-                        }
-                        spaceAbove = Math.max(0, spaceAbove)
-                        
-                        // Вычисляем высоту выпадающего списка (36px на элемент + 8px padding)
-                        const itemHeight = 36
-                        const padding = 8
-                        const minDropdownHeight = itemHeight + padding // Минимум 1 элемент
-                        const maxDropdownHeight = 300 // Максимум 300px
-                        
-                        // Рассчитываем сколько элементов поместится
-                        const availableSpace = Math.max(spaceBelow, spaceAbove)
-                        const maxItemsToShow = Math.floor((availableSpace - padding) / itemHeight)
-                        const itemsToShow = Math.min(autocomplete.suggestions.length, Math.max(1, maxItemsToShow))
-                        const dropdownHeight = Math.min(itemsToShow * itemHeight + padding, maxDropdownHeight)
-                        
-                        // Размещаем сверху если снизу мало места (меньше чем нужно для минимума) и сверху достаточно места
-                        const positionAbove = spaceBelow < minDropdownHeight && spaceAbove >= minDropdownHeight
-                        
-                        // Максимальная высота для отображения
-                        const maxHeight = positionAbove 
-                          ? Math.min(maxDropdownHeight, spaceAbove - 2)
-                          : Math.min(maxDropdownHeight, spaceBelow - 2)
-                        
-                        // Используем fixed позиционирование для корректного отображения при скролле
-                        let fixedTop = positionAbove 
-                          ? rect.top - dropdownHeight - 2
-                          : rect.bottom + 2
-                        
-                        // Убеждаемся, что меню не выходит за верхнюю границу viewport
-                        if (fixedTop < viewportTop) {
-                          fixedTop = viewportTop + 10
-                        }
-                        // Убеждаемся, что меню не выходит за нижнюю границу viewport
-                        if (fixedTop + dropdownHeight > viewportBottom) {
-                          fixedTop = viewportBottom - dropdownHeight - 10
-                        }
-                        
-                        // Вычисляем ширину с учетом границ viewport
-                        let fixedLeft = rect.left
-                        let fixedWidth = rect.width
-                        
-                        // Минимальная ширина из CSS
-                        const minWidth = 250
-                        if (fixedWidth < minWidth) {
-                          fixedWidth = minWidth
-                        }
-                        
-                        // Проверяем, не выходит ли меню за правую границу viewport
-                        if (fixedLeft + fixedWidth > viewportRight) {
-                          // Сдвигаем влево, чтобы поместилось
-                          fixedLeft = Math.max(viewportLeft + 10, viewportRight - fixedWidth - 10)
-                        }
-                        
-                        // Проверяем, не выходит ли меню за левую границу viewport
-                        if (fixedLeft < viewportLeft) {
-                          fixedLeft = viewportLeft + 10
-                          // Если все еще не помещается, уменьшаем ширину
-                          if (fixedLeft + fixedWidth > viewportRight) {
-                            fixedWidth = viewportRight - fixedLeft - 10
-                          }
-                        }
-                        
-                        return (
-                          <div
-                            ref={autocompleteRef}
-                            className="autocomplete-dropdown"
-                            style={{
-                              position: 'fixed',
-                              top: `${fixedTop}px`,
-                              left: `${fixedLeft}px`,
-                              width: `${fixedWidth}px`,
-                              zIndex: 20000,
-                              maxHeight: `${Math.max(minDropdownHeight, maxHeight)}px`,
-                              minHeight: `${minDropdownHeight}px`,
-                              overflowY: 'auto',
-                              overflowX: 'hidden'
-                            }}
-                            onMouseDown={(e) => {
-                              // Предотвращаем blur textarea при клике на выпадающий список
-                              e.preventDefault()
-                            }}
-                          >
-                            {autocomplete.suggestions.map((suggestion, idx) => (
-                              <div
-                                key={idx}
-                                className={`autocomplete-item ${idx === autocomplete.selectedIndex ? 'selected' : ''}`}
-                                onMouseDown={(e) => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                  // Отменяем blur timeout если он есть
-                                  const cellKey = `${autocomplete.rowIdx}-${autocomplete.col}`
-                                  const cell = cellRefs.current[cellKey]
-                                  if (cell) {
-                                    const textarea = cell.querySelector('textarea')
-                                    if (textarea && textarea.dataset.blurTimeout) {
-                                      clearTimeout(parseInt(textarea.dataset.blurTimeout))
-                                      delete textarea.dataset.blurTimeout
-                                    }
+                      {autocomplete.show && autocomplete.rowIdx === rowIdx && autocomplete.col === col && autocomplete.suggestions.length > 0 && autocompletePosition && createPortal(
+                        <div
+                          ref={autocompleteRef}
+                          className="autocomplete-dropdown"
+                          style={{
+                            position: 'fixed',
+                            top: `${autocompletePosition.top}px`,
+                            left: `${autocompletePosition.left}px`,
+                            width: `${autocompletePosition.width}px`,
+                            zIndex: 20,
+                            height: `${autocompletePosition.height}px`,
+                            overflowY: 'auto',
+                            overflowX: 'hidden'
+                          }}
+                          onMouseDown={(e) => {
+                            // Предотвращаем blur textarea при клике на выпадающий список
+                            e.preventDefault()
+                          }}
+                        >
+                          {autocomplete.suggestions.map((suggestion, idx) => (
+                            <div
+                              key={idx}
+                              className={`autocomplete-item ${idx === autocomplete.selectedIndex ? 'selected' : ''}`}
+                              onMouseDown={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                // Отменяем blur timeout если он есть
+                                const cellKey = `${autocomplete.rowIdx}-${autocomplete.col}`
+                                const cell = cellRefs.current[cellKey]
+                                if (cell) {
+                                  const textarea = cell.querySelector('textarea')
+                                  if (textarea && textarea.dataset.blurTimeout) {
+                                    clearTimeout(parseInt(textarea.dataset.blurTimeout))
+                                    delete textarea.dataset.blurTimeout
                                   }
-                                  // Выбираем подсказку сразу при нажатии мыши
-                                  selectAutocompleteSuggestion(suggestion)
-                                }}
-                                onMouseEnter={() => setAutocomplete(prev => ({ ...prev, selectedIndex: idx }))}
-                              >
-                                {suggestion}
-                              </div>
-                            ))}
-                          </div>
-                        )
-                      })()}
+                                }
+                                // Выбираем подсказку сразу при нажатии мыши
+                                selectAutocompleteSuggestion(suggestion)
+                              }}
+                              onMouseEnter={() => setAutocomplete(prev => ({ ...prev, selectedIndex: idx }))}
+                            >
+                              {suggestion}
+                            </div>
+                          ))}
+                        </div>,
+                        document.body
+                      )}
                     </td>
                   ))}
                 </tr>

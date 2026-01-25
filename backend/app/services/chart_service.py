@@ -51,6 +51,7 @@ def create_sunburst_chart(
         # Обработка столбца значений
         use_value_col = None
         original_values_col = None
+        uniform_value_col = None
         if value_col and value_col in df.columns:
             df[value_col] = df[value_col].replace(['', ' ', 'nan', 'None', 'NaN'], None)
             df[value_col] = pd.to_numeric(df[value_col], errors="coerce").fillna(0)
@@ -67,6 +68,33 @@ def create_sunburst_chart(
             # Поэтому заменяем 0 на 1 (минимальное значение для отображения)
             df[value_col] = df[value_col].replace(0, 1)
             use_value_col = value_col
+
+        # Равномерное распределение: подбираем веса так, чтобы все узлы на уровне были равны
+        if uniform_size and hierarchy_cols:
+            df_for_weights = df.drop_duplicates(subset=hierarchy_cols).copy()
+            children_map = {}
+            for _, row in df_for_weights.iterrows():
+                path = []
+                for level in range(len(hierarchy_cols)):
+                    parent_key = tuple(path)
+                    child = str(row[hierarchy_cols[level]])
+                    children_map.setdefault(parent_key, set()).add(child)
+                    path.append(child)
+
+            def compute_weight(row):
+                weight = 1.0
+                path = []
+                for level in range(len(hierarchy_cols)):
+                    parent_key = tuple(path)
+                    child_count = len(children_map.get(parent_key, [])) or 1
+                    weight *= 1.0 / child_count
+                    path.append(str(row[hierarchy_cols[level]]))
+                return weight
+
+            df_for_weights['_uniform_weight'] = df_for_weights.apply(compute_weight, axis=1)
+            df = df_for_weights
+            uniform_value_col = '_uniform_weight'
+            use_value_col = uniform_value_col
         
         if df.empty:
             return "<p style='color:red'>Нет данных для отображения (все значения нулевые).</p>"
@@ -84,7 +112,7 @@ def create_sunburst_chart(
         fig = px.sunburst(
             df,
             path=hierarchy_cols,
-            values=None if uniform_size else use_value_col,
+            values=use_value_col,
             color=color_col,
             color_discrete_sequence=None if color_map else px.colors.qualitative.Pastel,
             color_discrete_map=color_map,
@@ -101,6 +129,15 @@ def create_sunburst_chart(
         else:
             hover_template = '<b>%{label}</b><br><b>Путь:</b> %{parent}<br><extra></extra>'
         
+        # Размер диаграммы: базовый + небольшой запас для длинных подписей
+        max_label_len = 0
+        for col in hierarchy_cols:
+            if col in df.columns:
+                max_label_len = max(max_label_len, df[col].astype(str).map(len).max())
+        base_size = 900
+        extra_size = min(300, max(0, (max_label_len - 12) * 6))
+        chart_size = base_size + extra_size
+
         fig.update_layout(
             hovermode='closest',
             hoverlabel=dict(bgcolor="white", font_size=12, font_family="Arial", namelength=-1, bordercolor="black"),
@@ -108,10 +145,9 @@ def create_sunburst_chart(
             font=dict(family="Arial, sans-serif", size=11),
             paper_bgcolor='white',
             plot_bgcolor='white',
-            width=900,
-            height=900,
+            width=chart_size,
+            height=chart_size,
             autosize=False,
-            # Добавляем поддержку word wrap в тексте диаграммы
             annotations=[],
         )
         
@@ -152,22 +188,116 @@ def create_sunburst_chart(
         if text_along_circumference:
             # Текст вдоль окружности с изгибом
             text_orientation = 'tangential'
-            text_font_size = 16  # Фиксированный размер шрифта
+            text_font_size = 16
         else:
-            # Обычная радиальная ориентация
-            text_orientation = 'radial'
-            text_font_size = 12  # Фиксированный размер шрифта
-        
-        # ВАЖНО: Применяем переносы ко ВСЕМ текстам длиннее 10 символов
-        # Используем более короткие строки (max_length=12), чтобы текст точно помещался
-        if hierarchy_cols:
-            for col in hierarchy_cols:
-                if col in df.columns:
-                    # Применяем переносы ко всем текстам длиннее 10 символов
-                    df[col] = df[col].apply(lambda x: wrap_text(x, max_length=12) if len(str(x)) > 10 else str(x))
+            # Авто-ориентация лучше центрирует и не "поднимает" крайние лепестки
+            text_orientation = 'auto'
+            text_font_size = 12
+
+        # Применяем переносы к отображаемому тексту (без изменения данных)
+        wrapped_labels = None
+        if fig.data and len(fig.data) > 0:
+            trace = fig.data[0]
+            original_labels = list(trace.labels)
+            original_parents = list(trace.parents)
+            original_ids = list(trace.ids) if getattr(trace, "ids", None) is not None else None
+            original_values = list(trace.values) if getattr(trace, "values", None) is not None else None
+
+            # Подготовка данных для оценки доступной ширины текста
+            levels_count = max(1, len(hierarchy_cols))
+            ring_thickness = (chart_size / 2) / (levels_count + 1)
+            char_px = text_font_size * 0.6
+            arc_padding_ratio = 0.8
+
+            if original_ids:
+                id_to_index = {node_id: idx for idx, node_id in enumerate(original_ids)}
+                id_to_parent = {node_id: original_parents[idx] for idx, node_id in enumerate(original_ids)}
+                children_map = {}
+                for node_id, parent_id in id_to_parent.items():
+                    children_map.setdefault(parent_id or '', []).append(node_id)
+
+                id_to_value = {}
+                values_match_nodes = original_values and len(original_values) == len(original_ids)
+                if values_match_nodes:
+                    id_to_value = {node_id: float(original_values[idx]) for idx, node_id in enumerate(original_ids)}
+                else:
+                    for node_id in original_ids:
+                        id_to_value[node_id] = 1.0
+
+                def compute_value(node_id, cache):
+                    if node_id in cache:
+                        return cache[node_id]
+                    children = children_map.get(node_id, [])
+                    if not children:
+                        cache[node_id] = id_to_value.get(node_id, 1.0)
+                        return cache[node_id]
+                    total = 0.0
+                    for child_id in children:
+                        total += compute_value(child_id, cache)
+                    cache[node_id] = total if total > 0 else id_to_value.get(node_id, 1.0)
+                    return cache[node_id]
+
+                value_cache = {}
+                if not values_match_nodes:
+                    for node_id in original_ids:
+                        compute_value(node_id, value_cache)
+                else:
+                    value_cache = id_to_value
+
+                root_total = sum(
+                    value_cache.get(node_id, 0.0)
+                    for node_id in children_map.get('', [])
+                ) or 1.0
+
+                def get_depth(node_id):
+                    depth = 0
+                    parent_id = id_to_parent.get(node_id, '')
+                    while parent_id:
+                        depth += 1
+                        parent_id = id_to_parent.get(parent_id, '')
+                    return depth
+
+                def get_root_total():
+                    return root_total
+            else:
+                # Фолбэк без ids
+                id_to_index = {idx: idx for idx in range(len(original_labels))}
+
+                def get_depth(_):
+                    return 0
+
+                def get_root_total():
+                    if original_values:
+                        return sum(original_values) or 1.0
+                    return len(original_labels) or 1.0
+
+            wrapped_labels = []
+            for idx, (label, parent) in enumerate(zip(original_labels, original_parents)):
+                label_str = str(label)
+                if parent == '' or parent is None:
+                    # Центр: рассчитываем ширину центра и переносим по словам
+                    center_width = ring_thickness * 2.0 * arc_padding_ratio
+                    max_chars = max(3, int(center_width / max(1, char_px)))
+                    wrapped_labels.append(wrap_text(label_str, max_length=max_chars))
+                    continue
+
+                node_value = 1.0
+                if original_ids:
+                    node_value = value_cache.get(original_ids[idx], 1.0)
+                elif original_values and idx < len(original_values):
+                    node_value = float(original_values[idx]) or 1.0
+                root_total = get_root_total()
+                angle = (node_value / max(1.0, root_total)) * (2 * 3.14159)
+                depth = get_depth(original_ids[idx] if original_ids else idx)
+                radius = ring_thickness * (depth + 0.5)
+                arc_length = angle * radius * arc_padding_ratio
+                max_chars = max(3, int(arc_length / max(1, char_px)))
+                wrapped_labels.append(wrap_text(label_str, max_length=max_chars))
         
         fig.update_traces(
-            textinfo="label",  # Только названия на секторах
+            text=wrapped_labels,
+            textinfo="text",
+            texttemplate="%{text}",
             hovertemplate=hover_template,
             textfont=dict(size=text_font_size, family="Arial, sans-serif", color="black"),
             insidetextorientation=text_orientation,
@@ -179,8 +309,8 @@ def create_sunburst_chart(
         # Используем mode="show" чтобы показывать весь текст, даже если он не помещается идеально
         fig.update_layout(
             font=dict(family="Arial, sans-serif", size=text_font_size),
-            # Показываем весь текст, но с минимальным размером шрифта
-            uniformtext=dict(mode="show", minsize=text_font_size),
+            # Даем возможность корректно масштабировать текст при необходимости
+            uniformtext=dict(mode="show", minsize=max(8, text_font_size - 2)),
         )
         
         html = fig.to_html(include_plotlyjs="inline", full_html=True)
