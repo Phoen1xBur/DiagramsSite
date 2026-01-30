@@ -156,15 +156,60 @@
   opacity: 0.5;
 }
 
-.zoom-controls {
-  margin-top: 10px;
+.chart-zoom-bar {
+  margin: 12px 0 18px;
+  padding: 10px 14px;
   display: flex;
   align-items: center;
   gap: 10px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(6px);
 }
 
-.zoom-slider {
-  width: 200px;
+.chart-zoom-bar:hover {
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.chart-zoom-bar .zoom-label {
+  font-weight: 600;
+  color: #333;
+}
+
+.chart-zoom-bar .zoom-slider {
+  width: 220px;
+}
+
+.chart-zoom-bar .zoom-value {
+  min-width: 52px;
+  text-align: center;
+  font-weight: 600;
+  color: #333;
+}
+
+.chart-zoom-bar .zoom-btn,
+.chart-zoom-bar .zoom-reset {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 14px;
+  border-radius: 6px;
+  background: white;
+  border: 1px solid #d0d0d0;
+  color: #333;
+}
+
+.chart-zoom-bar .zoom-btn:hover,
+.chart-zoom-bar .zoom-reset:hover {
+  background: #f5f5f5;
+  border-color: #bdbdbd;
+  transform: none;
+  box-shadow: none;
+}
+
+.chart-zoom-bar .zoom-reset {
+  font-weight: 600;
 }
 
 .plot {
@@ -173,30 +218,24 @@
   background: white;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  overflow: hidden;
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  overflow: auto;
+}
+
+.plot-scroll {
+  position: relative;
+}
+
+.plot-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
 }
 
 .plot iframe {
   overflow: hidden !important;
   border: none;
-}
-
-.plot iframe body {
-  overflow: hidden !important;
-}
-
-/* Убираем скроллбары */
-.plot::-webkit-scrollbar {
-  display: none;
-}
-
-.plot {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
 }
 
 .chart-actions {

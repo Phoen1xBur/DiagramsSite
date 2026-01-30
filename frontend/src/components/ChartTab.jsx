@@ -24,6 +24,8 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   const [draggedFromIndex, setDraggedFromIndex] = useState(null) // ИСХОДНАЯ позиция при начале drag
   const [dragOverIndex, setDragOverIndex] = useState(null)
   const [showPreview, setShowPreview] = useState(false)
+  const [zoomPercent, setZoomPercent] = useState(100)
+  const [contentSize, setContentSize] = useState({ width: 0, height: 0 })
   const chartContainerRef = useRef(null)
   const columnsContainerRef = useRef(null)
   const autoScrollIntervalRef = useRef(null)
@@ -347,6 +349,12 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
     // handleDragEnd уже будет вызван автоматически после drop
   }
 
+  const clampZoom = (value) => Math.min(500, Math.max(25, value))
+
+  const handleZoomChange = (value) => {
+    setZoomPercent(clampZoom(value))
+  }
+
   const handleRenderChart = async () => {
     if (!fileId) {
       showNotification('Необходимо сохранить файл перед построением диаграммы!', 'warning')
@@ -507,6 +515,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
     if (!chartContainerRef.current) return
 
     chartContainerRef.current.innerHTML = ''
+    setContentSize({ width: 0, height: 0 })
 
     if (chartHtml) {
       try {
@@ -518,10 +527,46 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         iframe.style.overflow = 'hidden'
         iframe.style.display = 'block'
         iframe.style.background = 'white'
+        iframe.setAttribute('scrolling', 'no')
+
+        const updateContentSize = () => {
+          try {
+            const doc = iframe.contentDocument
+            if (!doc) return
+            const body = doc.body
+            const html = doc.documentElement
+            const width = Math.max(
+              body?.scrollWidth || 0,
+              body?.offsetWidth || 0,
+              html?.clientWidth || 0,
+              html?.scrollWidth || 0,
+              html?.offsetWidth || 0
+            )
+            const height = Math.max(
+              body?.scrollHeight || 0,
+              body?.offsetHeight || 0,
+              html?.clientHeight || 0,
+              html?.scrollHeight || 0,
+              html?.offsetHeight || 0
+            )
+            if (width && height) {
+              iframe.style.width = `${width}px`
+              iframe.style.height = `${height}px`
+              setContentSize({ width, height })
+            }
+          } catch (sizeErr) {
+            console.warn('Не удалось измерить размер диаграммы:', sizeErr)
+          }
+        }
         
         iframe.onerror = (e) => {
           console.error('Ошибка загрузки iframe:', e)
           setError('Ошибка отображения диаграммы')
+        }
+
+        iframe.onload = () => {
+          updateContentSize()
+          setTimeout(updateContentSize, 100)
         }
         
         chartContainerRef.current.appendChild(iframe)
@@ -815,6 +860,45 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         onSave={handleSaveAsNew}
       />
 
+      <div className="chart-zoom-bar">
+        <span className="zoom-label">Масштаб</span>
+        <button
+          type="button"
+          className="zoom-btn"
+          onClick={() => handleZoomChange(zoomPercent - 25)}
+          title="Уменьшить"
+        >
+          −
+        </button>
+        <input
+          type="range"
+          min="25"
+          max="500"
+          step="5"
+          value={zoomPercent}
+          onChange={(e) => handleZoomChange(Number(e.target.value))}
+          className="zoom-slider"
+          aria-label="Масштаб диаграммы"
+        />
+        <span className="zoom-value">{zoomPercent}%</span>
+        <button
+          type="button"
+          className="zoom-btn"
+          onClick={() => handleZoomChange(zoomPercent + 25)}
+          title="Увеличить"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          className="zoom-reset"
+          onClick={() => handleZoomChange(100)}
+          title="Сбросить масштаб"
+        >
+          100%
+        </button>
+      </div>
+
       {loading && (
         <div className="plot" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <p>⏳ Построение диаграммы...</p>
@@ -822,8 +906,30 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
       )}
 
       {!loading && chartHtml && (
-        <div className="plot" ref={chartContainerRef}>
-          {/* Диаграмма вставляется через iframe */}
+        <div className="plot">
+          <div
+            className="plot-scroll"
+            style={
+              contentSize.width && contentSize.height
+                ? {
+                    width: `${(contentSize.width * zoomPercent) / 100}px`,
+                    height: `${(contentSize.height * zoomPercent) / 100}px`
+                  }
+                : { width: '100%', height: '100%' }
+            }
+          >
+            <div
+              className="plot-inner"
+              ref={chartContainerRef}
+              style={{
+                width: contentSize.width ? `${contentSize.width}px` : '100%',
+                height: contentSize.height ? `${contentSize.height}px` : '100%',
+                transform: `scale(${zoomPercent / 100})`
+              }}
+            >
+              {/* Диаграмма вставляется через iframe */}
+            </div>
+          </div>
         </div>
       )}
 
