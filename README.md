@@ -214,6 +214,18 @@ docker-compose up -d
 
 5. (Опционально) Настройте Nginx как reverse proxy для frontend и backend
 
+### Страница «Техработы» при обновлении сайта
+
+При `docker compose down` и пересборке upstream недоступен, nginx отдаёт 502. Чтобы показывать свою страницу «Идут технические работы», используйте страницу из репозитория и пример конфига:
+
+- **HTML:** `frontend/maintenance/index.html` — в стиле сайта (фиолетовый градиент, белая карточка). При деплое эта папка должна быть на сервере (например, рядом с проектом).
+- **Nginx:** см. файл `nginx-maintenance.example.conf` в корне проекта. В `server { ... }` добавьте именованный location `@maintenance` и в location с `proxy_pass` — строки:
+  - `proxy_intercept_errors on;`
+  - `error_page 502 503 504 = @maintenance;`
+  В `@maintenance` укажите в `root` полный путь к папке `frontend/maintenance` на сервере.
+
+После настройки при падении frontend/backend пользователи увидят страницу техработ вместо «502 Bad Gateway».
+
 ## Развертывание на Windows
 
 1. Установите Docker Desktop для Windows
