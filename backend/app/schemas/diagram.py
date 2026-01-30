@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
 
 class DataFileCreate(BaseModel):
@@ -8,6 +8,7 @@ class DataFileCreate(BaseModel):
     file_type: str
     columns: List[str]
     data: List[dict]
+
 
 class DataFileResponse(BaseModel):
     id: int
@@ -18,7 +19,7 @@ class DataFileResponse(BaseModel):
     data: List[dict]
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
 
@@ -64,4 +65,6 @@ class ChartRequest(BaseModel):
     text_along_circumference: bool = False
     show_full_text: bool = False
     dynamic_font_size: bool = False
+    # canonical_name -> actual_name в данных; для совместимости диаграмм при переименовании столбцов
+    column_mapping: Optional[Dict[str, str]] = None
 

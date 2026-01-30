@@ -180,11 +180,11 @@ async def update_project(
     # Проверяем ограничения (для базовой подписки)
     check_subscription_limits(current_user, db, project_id)
     
-    if project.name is not None:
-        db_project.name = project.name
-    if project.description is not None:
-        db_project.description = project.description
-    
+    # Обновляем только переданные поля (позволяет явно очистить description при переименовании)
+    update_data = project.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_project, key, value)
+
     db.commit()
     db.refresh(db_project)
     

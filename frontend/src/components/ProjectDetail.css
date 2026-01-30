@@ -85,6 +85,30 @@
   transform: scale(1.1);
 }
 
+.export-file-btn-small {
+  background: #4CAF50;
+  color: white;
+  border: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: opacity 0.2s, transform 0.2s, background 0.2s;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.export-file-btn-small:hover {
+  opacity: 1;
+  background: #388E3C;
+  transform: scale(1.1);
+}
+
 .file-card-info {
   display: flex;
   flex-direction: column;
@@ -98,6 +122,15 @@
   display: flex;
   gap: 10px;
   flex-direction: column;
+}
+
+.file-card-actions-two {
+  flex-direction: row;
+}
+
+.file-card-actions-two .file-card-button {
+  flex: 1;
+  min-width: 0;
 }
 
 .file-card-button {
@@ -179,15 +212,39 @@
 .project-header-content {
   flex: 1;
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
 }
 
+.project-detail .project-description {
+  margin: 8px 0 0 0;
+  font-size: 14px;
+  color: #495057;
+  line-height: 1.4;
+  max-width: 500px;
+  text-align: center;
+}
+
 .project-header h2 {
-  font-size: 32px;
+  font-size: 40px;
   font-weight: 700;
   margin: 0 0 10px 0;
   color: #212529;
+}
+
+.project-title-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.project-open-filename {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  color: #1a237e;
 }
 
 .back-btn-compact {

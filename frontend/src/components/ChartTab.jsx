@@ -28,50 +28,67 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   const columnsContainerRef = useRef(null)
   const autoScrollIntervalRef = useRef(null)
 
+  // Порядок столбцов всегда как в редакторе (из props)
   useEffect(() => {
     if (columns && columns.length > 0) {
-      // Инициализируем порядок столбцов из исходного массива
       setColumnOrder([...columns])
-      // По умолчанию выбираем первые 3 столбца
-      setSelectedColumns(columns.slice(0, Math.min(3, columns.length)))
+      // По умолчанию выбираем первые 3 столбца только при первой загрузке файла
+      setSelectedColumns(prev => prev.length === 0 ? columns.slice(0, Math.min(3, columns.length)) : prev)
     }
   }, [columns])
 
-  // Восстанавливаем сохраненные настройки диаграммы из localStorage (без HTML)
+  // Восстанавливаем сохраненные настройки диаграммы из localStorage (по индексам, чтобы переименование столбцов не ломало выбор)
   useEffect(() => {
     if (fileId && columns && columns.length > 0) {
       const saved = localStorage.getItem(`chart_settings_${fileId}`)
       if (saved) {
         try {
           const chartData = JSON.parse(saved)
-          setSelectedColumns(chartData.selectedColumns || [])
-          setValueColumn(chartData.valueColumn || '')
+          // Восстановление по индексам (актуальные названия столбцов)
+          if (Array.isArray(chartData.selectedColumnIndices)) {
+            const restored = chartData.selectedColumnIndices.map(i => columns[i]).filter(Boolean)
+            if (restored.length > 0) setSelectedColumns(restored)
+          } else if (Array.isArray(chartData.selectedColumns)) {
+            const byName = chartData.selectedColumns.filter(c => columns.includes(c))
+            if (byName.length > 0) setSelectedColumns(byName)
+          }
+          if (chartData.valueColumnIndex != null && columns[chartData.valueColumnIndex] != null) {
+            setValueColumn(columns[chartData.valueColumnIndex])
+          } else if (chartData.valueColumn && columns.includes(chartData.valueColumn)) {
+            setValueColumn(chartData.valueColumn)
+          } else {
+            setValueColumn('')
+          }
           setUseGradient(chartData.useGradient !== undefined ? chartData.useGradient : true)
           setUniformSize(chartData.uniformSize || false)
           setShowZeroValues(chartData.showZeroValues !== undefined ? chartData.showZeroValues : true)
           setTextAlongCircumference(chartData.textAlongCircumference || false)
           setShowFullText(chartData.showFullText || false)
           setDynamicFontSize(chartData.dynamicFontSize || false)
-          // Восстанавливаем порядок столбцов, если он сохранен
-          if (chartData.columnOrder && chartData.columnOrder.length === columns.length) {
-            setColumnOrder(chartData.columnOrder)
+          if (!chartData.selectedColumnIndices?.length && !chartData.selectedColumns?.length) {
+            setSelectedColumns(columns.slice(0, Math.min(3, columns.length)))
           }
-          // HTML не сохраняем, он будет сгенерирован заново при необходимости
         } catch (e) {
           console.error('Ошибка восстановления настроек диаграммы:', e)
+          setSelectedColumns(columns.slice(0, Math.min(3, columns.length)))
         }
+      } else {
+        setSelectedColumns(columns.slice(0, Math.min(3, columns.length)))
       }
     }
   }, [fileId, columns])
 
-  // Сохраняем только настройки диаграммы в localStorage (без HTML, чтобы не превысить квоту)
+  // Сохраняем только настройки диаграммы в localStorage (по индексам — переименование столбцов не сломает выбор)
   useEffect(() => {
-    if (fileId && columnOrder.length > 0) {
+    if (fileId && columns && columns.length > 0) {
       try {
+        const selectedColumnIndices = selectedColumns.map(c => columns.indexOf(c)).filter(i => i >= 0)
+        const valueColumnIndex = valueColumn ? columns.indexOf(valueColumn) : -1
         localStorage.setItem(`chart_settings_${fileId}`, JSON.stringify({
           selectedColumns,
-          columnOrder,
+          selectedColumnIndices,
           valueColumn,
+          valueColumnIndex: valueColumnIndex >= 0 ? valueColumnIndex : undefined,
           useGradient,
           uniformSize,
           showZeroValues,
@@ -80,26 +97,38 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
           dynamicFontSize
         }))
       } catch (e) {
-        // Если не удалось сохранить (например, квота превышена), просто игнорируем
         console.warn('Не удалось сохранить настройки диаграммы в localStorage:', e)
       }
     }
-  }, [selectedColumns, columnOrder, valueColumn, useGradient, uniformSize, showZeroValues, textAlongCircumference, showFullText, dynamicFontSize, fileId])
+  }, [selectedColumns, valueColumn, useGradient, uniformSize, showZeroValues, textAlongCircumference, showFullText, dynamicFontSize, fileId, columns])
 
-  // Загружаем настройки сохраненной диаграммы при открытии
+  // Загружаем настройки сохраненной диаграммы при открытии (только если диаграмма привязана к текущему файлу)
+  // Подставляем только те столбцы, которые есть в текущем файле (по имени)
   useEffect(() => {
-    if (openedDiagramId) {
+    if (openedDiagramId && fileId && columns && columns.length > 0) {
       const loadDiagramSettings = async () => {
         try {
           const diagramResponse = await apiClient.get(`/diagrams/${openedDiagramId}`)
           const diagram = diagramResponse.data
-          
-          // Восстанавливаем настройки из сохраненной диаграммы
-          if (diagram.hierarchy_columns) {
-            setSelectedColumns(diagram.hierarchy_columns)
+          if (diagram.data_file_id !== fileId) {
+            return
           }
-          if (diagram.value_column !== null && diagram.value_column !== undefined) {
+          const fileColumnsSet = new Set(columns)
+          if (diagram.hierarchy_columns && diagram.hierarchy_columns.length > 0) {
+            const validHierarchy = diagram.hierarchy_columns.filter(c => fileColumnsSet.has(c))
+            const dropped = diagram.hierarchy_columns.length - validHierarchy.length
+            if (dropped > 0) {
+              showNotification(
+                `В файле нет столбцов «${diagram.hierarchy_columns.filter(c => !fileColumnsSet.has(c)).join('», «')}» — выбраны только столбцы из текущей таблицы. При необходимости выберите столбцы вручную и нажмите «Построить».`,
+                'info'
+              )
+            }
+            setSelectedColumns(validHierarchy.length > 0 ? validHierarchy : columns.slice(0, Math.min(3, columns.length)))
+          }
+          if (diagram.value_column != null && fileColumnsSet.has(diagram.value_column)) {
             setValueColumn(diagram.value_column)
+          } else {
+            setValueColumn('')
           }
           setUseGradient(diagram.use_gradient !== undefined ? diagram.use_gradient : true)
           setUniformSize(diagram.uniform_size || false)
@@ -113,7 +142,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
       }
       loadDiagramSettings()
     }
-  }, [openedDiagramId])
+  }, [openedDiagramId, fileId, columns])
 
   // Автопостроение диаграммы при открытии сохраненной
   useEffect(() => {
@@ -345,11 +374,20 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         return
       }
 
+      // Отправляем только столбцы, которые реально есть в открытом файле (на случай устаревшего состояния)
+      const savedColumnsSet = new Set(savedColumns)
+      const hierarchyToSend = selectedColumns.filter(c => savedColumnsSet.has(c))
+      if (hierarchyToSend.length === 0) {
+        showNotification('Выберите столбцы из списка текущего файла. Часть выбранных столбцов в этом файле отсутствует.', 'warning')
+        setLoading(false)
+        return
+      }
+
       const response = await apiClient.post('/charts/generate', {
         data: savedData,
         columns: savedColumns,
-        hierarchy_columns: selectedColumns,
-        value_column: valueColumn || null,
+        hierarchy_columns: hierarchyToSend,
+        value_column: (valueColumn && savedColumnsSet.has(valueColumn)) ? valueColumn : null,
         use_gradient: useGradient,
         uniform_size: uniformSize,
         show_zero_values: showZeroValues,
@@ -359,7 +397,6 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
       })
 
       if (response.data && response.data.html) {
-        // Небольшая задержка для правильного рендеринга
         setTimeout(() => {
           setChartHtml(response.data.html)
           setLoading(false)
@@ -469,7 +506,6 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   useEffect(() => {
     if (!chartContainerRef.current) return
 
-    // Очищаем контейнер
     chartContainerRef.current.innerHTML = ''
 
     if (chartHtml) {
@@ -483,15 +519,9 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         iframe.style.display = 'block'
         iframe.style.background = 'white'
         
-        // Обработчик ошибок
         iframe.onerror = (e) => {
           console.error('Ошибка загрузки iframe:', e)
           setError('Ошибка отображения диаграммы')
-        }
-        
-        // Обработчик загрузки
-        iframe.onload = () => {
-          console.log('Диаграмма успешно загружена')
         }
         
         chartContainerRef.current.appendChild(iframe)
@@ -514,19 +544,6 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
 
   return (
     <div className="chart-tab">
-      {fileName && (
-        <div style={{ 
-          marginBottom: '15px', 
-          padding: '10px 15px', 
-          background: '#f5f5f5', 
-          borderRadius: '6px',
-          borderLeft: '4px solid #4CAF50'
-        }}>
-          <p style={{ margin: 0, fontSize: '14px', color: '#666' }}>
-            <strong>Открытый файл:</strong> {fileName}
-          </p>
-        </div>
-      )}
       <div className="chart-controls">
         <p><strong>Столбцы для иерархии (порядок важен):</strong></p>
         <div className="columns-list" ref={columnsContainerRef}>
@@ -806,7 +823,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
 
       {!loading && chartHtml && (
         <div className="plot" ref={chartContainerRef}>
-          {/* Диаграмма будет вставлена через iframe */}
+          {/* Диаграмма вставляется через iframe */}
         </div>
       )}
 

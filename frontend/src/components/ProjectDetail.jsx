@@ -47,6 +47,12 @@ function ProjectDetail() {
     loadProject()
   }, [projectId])
 
+  // При смене файла (например после импорта) сбрасываем открытую диаграмму,
+  // чтобы не подставлять столбцы от старого файла
+  useEffect(() => {
+    setOpenedDiagramId(null)
+  }, [fileId])
+
   const loadProject = async () => {
     try {
       const [projectResponse, filesResponse, diagramsResponse] = await Promise.all([
@@ -110,6 +116,84 @@ function ProjectDetail() {
     setIsFileModified(false)
   }
 
+  const currentFileName = (fileId || currentData) ? (projectFiles.find(f => f.id === fileId)?.original_filename || pendingFileName || '') : ''
+
+  const handleExportFile = async (fileIdToExport, fileNameForDownload) => {
+    try {
+      const fileResponse = await apiClient.get(`/files/${fileIdToExport}`)
+      const data = fileResponse.data.data
+      const cols = fileResponse.data.columns
+      if (!data || data.length === 0) {
+        showNotification('В файле нет данных для экспорта', 'warning')
+        return
+      }
+      // Названия и порядок столбцов как сохранены (как ввёл пользователь)
+      const csvContent = [
+        cols.join(','),
+        ...data.map(row =>
+          cols.map(col => {
+            const raw = row[col]
+            const value = raw === null || raw === undefined ? '' : String(raw)
+            if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+              return `"${value.replace(/"/g, '""')}"`
+            }
+            return value
+          }).join(',')
+        )
+      ].join('\n')
+      const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      const name = (fileNameForDownload || 'data').replace(/\s+/g, '_')
+      link.download = name.toLowerCase().endsWith('.csv') ? name : name + '.csv'
+      link.style.visibility = 'hidden'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      showNotification('Файл экспортирован', 'success')
+    } catch (err) {
+      showNotification('Ошибка экспорта: ' + (err.response?.data?.detail || err.message), 'error')
+    }
+  }
+
+  const handleExportCurrentFile = () => {
+    if (!currentData || currentData.length === 0) {
+      showNotification('Нет данных для экспорта!', 'warning')
+      return
+    }
+    try {
+      // Текущие названия столбцов (как ввёл пользователь) и текущий порядок столбцов
+      const csvContent = [
+        columns.join(','),
+        ...currentData.map(row =>
+          columns.map(col => {
+            const raw = row[col]
+            const value = raw === null || raw === undefined ? '' : String(raw)
+            if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+              return `"${value.replace(/"/g, '""')}"`
+            }
+            return value
+          }).join(',')
+        )
+      ].join('\n')
+      const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = (currentFileName || 'data').replace(/\s+/g, '_') + (currentFileName?.toLowerCase().endsWith('.csv') ? '' : '.csv')
+      link.style.visibility = 'hidden'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      showNotification('Данные экспортированы!', 'success')
+    } catch (err) {
+      showNotification('Ошибка экспорта: ' + err.message, 'error')
+    }
+  }
+
   const handleProjectNameSave = async () => {
     if (!projectName.trim()) {
       showNotification('Название проекта не может быть пустым', 'warning')
@@ -125,7 +209,8 @@ function ProjectDetail() {
 
     try {
       const response = await apiClient.put(`/projects/${projectId}`, {
-        name: projectName.trim()
+        name: projectName.trim(),
+        description: null  // убираем надпись «Проект создан автоматически при регистрации» после переименования
       })
       setProject(response.data)
       showNotification('Название проекта обновлено', 'success')
@@ -189,10 +274,13 @@ function ProjectDetail() {
               />
             </div>
           ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'center' }}>
-              <h2 style={{ margin: 0 }}>
-                {project.name}
-              </h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+              <div className="project-title-block">
+                <h2 style={{ margin: 0 }}>{project.name}</h2>
+                {(fileId || currentData) && currentFileName && (
+                  <p className="project-open-filename">{currentFileName}</p>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={() => setEditingProjectName(true)}
@@ -266,7 +354,14 @@ function ProjectDetail() {
                     <div key={file.id} className="file-card">
                       <div className="file-card-header">
                         <h4>{file.original_filename || `Файл #${file.id}`}</h4>
-                        <div style={{ display: 'flex', gap: '8px' }}>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <button
+                            className="export-file-btn-small"
+                            onClick={() => handleExportFile(file.id, file.original_filename || `Файл #${file.id}`)}
+                            title="Экспорт в CSV"
+                          >
+                            💾
+                          </button>
                           <button
                             className="rename-file-btn-small"
                             onClick={() => setRenameFileModal({
@@ -295,7 +390,7 @@ function ProjectDetail() {
                         <span>📊 Столбцов: {file.columns?.length || 0}</span>
                         <span>📋 Строк: {file.data?.length || 0}</span>
                       </div>
-                      <div className="file-card-actions">
+                      <div className="file-card-actions file-card-actions-two">
                         <button 
                           className="primary file-card-button" 
                           onClick={async () => {
@@ -311,7 +406,24 @@ function ProjectDetail() {
                             }
                           }}
                         >
-                          Открыть в редакторе
+                          Редактор
+                        </button>
+                        <button 
+                          className="primary file-card-button" 
+                          onClick={async () => {
+                            try {
+                              const fileResponse = await apiClient.get(`/files/${file.id}`)
+                              setCurrentData(fileResponse.data.data)
+                              setColumns(fileResponse.data.columns)
+                              setFileId(fileResponse.data.id)
+                              setIsFileModified(false)
+                              setActiveTab('chart')
+                            } catch (err) {
+                              showNotification('Ошибка загрузки файла: ' + (err.response?.data?.detail || err.message), 'error')
+                            }
+                          }}
+                        >
+                          Диаграмма
                         </button>
                       </div>
                     </div>
@@ -436,6 +548,7 @@ function ProjectDetail() {
           columns={columns}
           onDataUpdated={handleDataUpdated}
           onColumnsUpdated={handleColumnsUpdated}
+          onExportCurrentFile={handleExportCurrentFile}
           fileId={fileId}
           user={user}
           isModified={isFileModified}

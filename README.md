@@ -76,6 +76,11 @@ docker-compose up -d
 docker-compose logs -f
 ```
 
+### Запуск на проде (frontend как статика на 5173)
+
+В `.env` задайте `FRONTEND_DOCKERFILE=Dockerfile.prod` и `FRONTEND_MOUNT_PATH=/src`. Дальше: `docker compose up -d --build`. Сборка фронта — внутри образа. Контейнер отдаёт `dist` на 5173, nginx проксирует на него.  
+**Проверка прод-сборки локально (без nginx):** оставьте `VITE_API_BASE_URL=http://localhost:18000/api/v1`, чтобы фронт ходил на бэкенд на 18000. На сервере за nginx ставьте `VITE_API_BASE_URL=/api/v1`.
+
 6. Для остановки:
 ```bash
 docker-compose down

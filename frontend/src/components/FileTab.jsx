@@ -50,7 +50,7 @@ function FileTab({ onFileLoaded, currentData, columns, fileId, onFileLoadedCallb
       data.push(row)
     }
 
-    onFileLoaded(data, columnNames, null, fileName)
+    onFileLoaded(data, columnNames, null, fileName, columnNames)
     if (onFileLoadedCallback) {
       onFileLoadedCallback()
     }
@@ -58,44 +58,6 @@ function FileTab({ onFileLoaded, currentData, columns, fileId, onFileLoadedCallb
     // Переключаемся на вкладку редактора
     if (onSwitchToEditor) {
       onSwitchToEditor()
-    }
-  }
-
-  const handleExportToExcel = async () => {
-    if (!currentData || currentData.length === 0) {
-      showNotification('Нет данных для экспорта!', 'warning')
-      return
-    }
-
-    try {
-      // Создаем CSV для экспорта (можно улучшить, используя библиотеку для Excel)
-      const csvContent = [
-        columns.join(','),
-        ...currentData.map(row => 
-          columns.map(col => {
-            const value = row[col] || ''
-            // Экранируем запятые и кавычки
-            if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-              return `"${value.replace(/"/g, '""')}"`
-            }
-            return value
-          }).join(',')
-        )
-      ].join('\n')
-
-      const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' })
-      const link = document.createElement('a')
-      const url = URL.createObjectURL(blob)
-      link.setAttribute('href', url)
-      link.setAttribute('download', 'data.csv')
-      link.style.visibility = 'hidden'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-
-      showNotification('Данные экспортированы!', 'success')
-    } catch (err) {
-      showNotification('Ошибка экспорта: ' + err.message, 'error')
     }
   }
 
@@ -155,21 +117,12 @@ function FileTab({ onFileLoaded, currentData, columns, fileId, onFileLoadedCallb
             >
               {loading ? '⏳ Загрузка...' : '📤 Загрузить Excel/CSV'}
             </button>
-            <button type="button" onClick={handleExportToExcel} className="primary">
-              💾 Экспорт в Excel
-            </button>
             <button type="button" onClick={() => setShowCreateModal(true)}>
               ➕ Создать новую таблицу
             </button>
           </div>
 
           {error && <div className="error">{error}</div>}
-
-          <div className="file-info">
-            <p>✅ Загружено строк: <strong>{currentData.length}</strong></p>
-            <p>📊 Столбцов: <strong>{columns.length}</strong></p>
-            {fileId && <p>🆔 ID файла: <strong>{fileId}</strong></p>}
-          </div>
         </>
       )}
       

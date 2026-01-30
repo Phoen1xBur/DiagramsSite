@@ -37,15 +37,43 @@ def create_sunburst_chart(
     show_zero_values: bool = True,
     text_along_circumference: bool = False,
     show_full_text: bool = False,
-    dynamic_font_size: bool = False
-) -> str:
-    """Создает sunburst диаграмму"""
+    dynamic_font_size: bool = False,
+    column_mapping: Optional[Dict[str, str]] = None,
+) -> tuple:
+    """Создает sunburst диаграмму. Возвращает (html, chart_size). column_mapping: canonical_name -> actual_name в данных."""
     try:
         if not data:
-            return "<p style='color:red'>Нет данных.</p>"
+            return "<p style='color:red'>Нет данных.</p>", 800
         
         df = pd.DataFrame(data)
-        
+        # Применяем маппинг: переименовываем столбцы из «фактических» в «канонические», чтобы диаграммы не ломались
+        if column_mapping:
+            rename = {actual: canonical for canonical, actual in column_mapping.items() if actual in df.columns}
+            if rename:
+                df = df.rename(columns=rename)
+        actual_columns = list(df.columns)
+
+        # Проверка: все столбцы иерархии и столбец значений должны существовать в данных
+        missing_hierarchy = [c for c in (hierarchy_cols or []) if c not in df.columns]
+        value_col_missing = value_col and value_col not in df.columns
+        if missing_hierarchy or value_col_missing:
+            expected = list(set((hierarchy_cols or []) + ([value_col] if value_col else [])))
+            received = actual_columns
+            msg = (
+                "Структура таблицы не совпадает с настройками диаграммы. "
+                "Диаграмма настроена на столбцы, которых нет в этой таблице (например, после импорта файла от другого пользователя). "
+                "Создайте новую диаграмму для этого файла и выберите столбцы из вашей таблицы."
+            )
+            detail = f"В настройках диаграммы: {expected}. В вашей таблице: {received}."
+            return (
+                f"<div style='padding:16px; max-width:560px; margin:0 auto; border:1px solid #f0ad4e; border-radius:8px; "
+                f"background:#fffbf0; color:#333;'>"
+                f"<p style='margin:0 0 12px 0; font-weight:600;'>Ошибка: {msg}</p>"
+                f"<p style='margin:0; font-size:14px; color:#666;'>{detail}</p>"
+                f"</div>",
+                800,
+            )
+
         # Обработка иерархических столбцов
         for col in hierarchy_cols:
             if col in df.columns:
@@ -102,7 +130,7 @@ def create_sunburst_chart(
             use_value_col = uniform_value_col
         
         if df.empty:
-            return "<p style='color:red'>Нет данных для отображения (все значения нулевые).</p>"
+            return "<p style='color:red'>Нет данных для отображения (все значения нулевые).</p>", 800
         
         # Настройка цветов для градиента
         color_col, color_map = None, None
@@ -565,9 +593,11 @@ def create_sunburst_chart(
             )
         
         html = fig.to_html(include_plotlyjs="inline", full_html=True)
-        logger.info(f"HTML графика сгенерирован, длина: {len(html)} символов")
-        return html
-        
+        # Вставляем размер в HTML, чтобы фронт и сохранённые диаграммы знали реальный размер
+        html = html.replace("</head>", f'<meta name="plotly-chart-size" content="{chart_size},{chart_size}"></head>')
+        logger.info(f"HTML графика сгенерирован, длина: {len(html)} символов, размер: {chart_size}")
+        return html, chart_size
+
     except Exception as e:
         logger.exception("Ошибка построения диаграммы")
-        return f"<p style='color:red'>Ошибка: {str(e)}</p>"
+        return f"<p style='color:red'>Ошибка: {str(e)}</p>", 800

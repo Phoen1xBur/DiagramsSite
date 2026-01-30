@@ -5,7 +5,7 @@ import { useNotification } from '../contexts/NotificationContext'
 import AddColumnModal from './AddColumnModal'
 import './EditorTab.css'
 
-function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, onFileIdUpdate, projectId, fileName, onFileNameChange, onColumnsUpdated, isModified: externalIsModified, onModifiedChange }) {
+function EditorTab({ data, columns, onDataUpdated, onExportCurrentFile, fileId, user, onFileSaved, onFileIdUpdate, projectId, fileName, onFileNameChange, onColumnsUpdated, isModified: externalIsModified, onModifiedChange }) {
   const { showNotification } = useNotification()
   const [localData, setLocalData] = useState(data || [])
   const [localColumns, setLocalColumns] = useState(columns || [])
@@ -56,8 +56,6 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
       // Сбрасываем ширины столбцов при загрузке нового файла
       setColumnWidths({})
     } else {
-      // Обновляем данные при изменении извне, но не сбрасываем isModified
-      // если пользователь уже внес изменения
       setLocalData(data || [])
       setLocalColumns(columns || [])
     }
@@ -691,7 +689,7 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
     if (!newName || !newName.trim() || newName === oldName) {
       return
     }
-    
+    // Каноническое имя не меняем — диаграммы остаются привязаны к старому имени
     const newColumns = localColumns.map(col => col === oldName ? newName.trim() : col)
     const newData = localData.map(row => {
       const newRow = { ...row }
@@ -701,7 +699,7 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
       }
       return newRow
     })
-    
+
     setLocalColumns(newColumns)
     setLocalData(newData)
     setIsModified(true)
@@ -799,15 +797,13 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
       const newColumns = [...localColumns]
       const draggedIndex = newColumns.indexOf(draggedColumn)
       const targetIndex = newColumns.indexOf(targetColName)
-      
-      newColumns.splice(draggedIndex, 1)
-      newColumns.splice(targetIndex, 0, draggedColumn)
-      
-      setLocalColumns(newColumns)
-      setIsModified(true)
-      if (onModifiedChange) onModifiedChange(true)
-      if (onColumnsUpdated) {
-        onColumnsUpdated(newColumns)
+      if (draggedIndex >= 0 && targetIndex >= 0) {
+        newColumns.splice(draggedIndex, 1)
+        newColumns.splice(targetIndex, 0, draggedColumn)
+        setLocalColumns(newColumns)
+        setIsModified(true)
+        if (onModifiedChange) onModifiedChange(true)
+        if (onColumnsUpdated) onColumnsUpdated(newColumns)
       }
     }
     setDraggedColumn(null)
@@ -833,9 +829,10 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
         // Создаем новый файл - создаем временный CSV файл и загружаем его
         const csvContent = [
           localColumns.join(','),
-          ...localData.map(row => 
+          ...localData.map(row =>
             localColumns.map(col => {
-              const value = row[col] || ''
+              const raw = row[col]
+              const value = raw === null || raw === undefined ? '' : String(raw)
               if (value.includes(',') || value.includes('"') || value.includes('\n')) {
                 return `"${value.replace(/"/g, '""')}"`
               }
@@ -867,7 +864,6 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
           data: localData,
           columns: localColumns
         }
-        // Если имя файла изменилось, добавляем его в обновление
         if (currentFileName && currentFileName !== fileName) {
           updateData.original_filename = currentFileName
         }
@@ -1269,6 +1265,18 @@ function EditorTab({ data, columns, onDataUpdated, fileId, user, onFileSaved, on
           )}
           {/* Datalists не используются, так как textarea не поддерживает их - используется кастомное автозаполнение */}
         </div>
+        {user && onExportCurrentFile && (
+          <div className="editor-footer">
+            <button
+              type="button"
+              onClick={onExportCurrentFile}
+              className="export-btn"
+              title="Экспорт в CSV"
+            >
+              💾 Экспорт
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

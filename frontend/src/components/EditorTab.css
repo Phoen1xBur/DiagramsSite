@@ -94,6 +94,25 @@
   transform: none;
 }
 
+.export-btn {
+  background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+  color: white;
+  border: none;
+  padding: 12px 22px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(25, 118, 210, 0.35);
+}
+
+.export-btn:hover {
+  background: linear-gradient(135deg, #1e88e5 0%, #1976d2 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(25, 118, 210, 0.45);
+}
+
 .editor-controls {
   margin-bottom: 20px;
   display: flex;
@@ -110,7 +129,7 @@
   margin-left: auto;
 }
 
-.editor-controls button {
+.editor-controls button:not(.save-btn):not(.export-btn) {
   padding: 10px 20px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
@@ -123,9 +142,10 @@
   box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
 }
 
-.editor-controls button:hover {
+.editor-controls button:not(.save-btn):not(.export-btn):hover {
+  background: linear-gradient(135deg, #5a6fd6 0%, #6a4190 100%);
   transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.45);
 }
 
 .table-wrapper {
@@ -139,6 +159,14 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
   background: white;
   position: relative;
+}
+
+.editor-footer {
+  margin: 20px;
+  padding: 16px 0;
+  border-top: 1px solid #e9ecef;
+  display: flex;
+  justify-content: flex-start;
 }
 
 .data-table {

@@ -13,6 +13,7 @@ from app.api.v1.projects import check_diagram_limit
 
 router = APIRouter()
 
+
 @router.post("/", response_model=DiagramResponse)
 async def create_diagram(
     diagram: DiagramCreate,
@@ -50,8 +51,8 @@ async def create_diagram(
         if not project_id:
             project_id = data_file.project_id
     
-    # Генерируем HTML диаграммы
-    chart_html = create_sunburst_chart(
+    # Генерируем HTML диаграммы (имена столбцов — текущие из файла)
+    chart_html, _ = create_sunburst_chart(
         data=data_file.data,
         columns=data_file.columns,
         hierarchy_cols=diagram.hierarchy_columns,
@@ -61,9 +62,10 @@ async def create_diagram(
         show_zero_values=diagram.show_zero_values,
         text_along_circumference=diagram.text_along_circumference,
         show_full_text=diagram.show_full_text,
-        dynamic_font_size=diagram.dynamic_font_size
+        dynamic_font_size=diagram.dynamic_font_size,
+        column_mapping=None,
     )
-    
+
     # Создаем диаграмму
     # project_id уже гарантированно установлен выше
     db_diagram = Diagram(
@@ -208,8 +210,8 @@ async def update_diagram(
     if not data_file:
         raise HTTPException(status_code=404, detail="Файл данных не найден")
     
-    # Регенерируем HTML
-    chart_html = create_sunburst_chart(
+    # Регенерируем HTML (имена столбцов — текущие из файла)
+    chart_html, _ = create_sunburst_chart(
         data=data_file.data,
         columns=data_file.columns,
         hierarchy_cols=diagram.hierarchy_columns,
@@ -219,9 +221,10 @@ async def update_diagram(
         show_zero_values=diagram.show_zero_values,
         text_along_circumference=diagram.text_along_circumference,
         show_full_text=diagram.show_full_text,
-        dynamic_font_size=diagram.dynamic_font_size
+        dynamic_font_size=diagram.dynamic_font_size,
+        column_mapping=None,
     )
-    
+
     # Обновляем диаграмму
     db_diagram.data_file_id = diagram.data_file_id
     db_diagram.name = diagram.name

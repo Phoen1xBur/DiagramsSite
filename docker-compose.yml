@@ -69,7 +69,10 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: ${FRONTEND_DOCKERFILE:-Dockerfile}
+      args:
+        VITE_DEBUG: ${VITE_DEBUG:-False}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/v1}
     container_name: sunburst_frontend
     env_file:
       - .env
@@ -78,8 +81,9 @@ services:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/v1}
     ports:
       - "5173:5173"
+    # Один compose: dev монтируем в /app (исходники для vite dev), прод — в /src, чтобы не затереть /app (там уже собранный dist в образе)
     volumes:
-      - ./frontend:/app
+      - ./frontend:${FRONTEND_MOUNT_PATH:-/app}
       - /app/node_modules
     depends_on:
       - backend

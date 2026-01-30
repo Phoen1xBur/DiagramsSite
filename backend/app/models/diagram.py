@@ -12,7 +12,7 @@ class DataFile(Base):
     filename = Column(String, nullable=False)
     original_filename = Column(String, nullable=False)
     file_type = Column(String, nullable=False)  # xlsx, csv
-    columns = Column(JSON, nullable=False)  # List of column names
+    columns = Column(JSON, nullable=False)  # List of column names (текущие в данных)
     data = Column(JSON, nullable=False)  # List of dictionaries
     is_anonymous = Column(Boolean, default=False)  # True для анонимных файлов
     created_at = Column(DateTime, default=datetime.utcnow)

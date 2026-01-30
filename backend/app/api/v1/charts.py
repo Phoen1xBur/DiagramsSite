@@ -10,7 +10,7 @@ async def generate_chart(request: ChartRequest):
     Генерирует HTML диаграммы на основе данных
     """
     try:
-        html = create_sunburst_chart(
+        html, chart_size = create_sunburst_chart(
             data=request.data,
             columns=request.columns,
             hierarchy_cols=request.hierarchy_columns,
@@ -20,10 +20,11 @@ async def generate_chart(request: ChartRequest):
             show_zero_values=request.show_zero_values,
             text_along_circumference=request.text_along_circumference,
             show_full_text=request.show_full_text,
-            dynamic_font_size=request.dynamic_font_size
+            dynamic_font_size=request.dynamic_font_size,
+            column_mapping=request.column_mapping,
         )
-        
-        return {"html": html}
+        size = chart_size if isinstance(chart_size, int) else 800
+        return {"html": html, "chart_width": size, "chart_height": size}
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ошибка генерации диаграммы: {str(e)}")
