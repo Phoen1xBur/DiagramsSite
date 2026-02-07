@@ -15,6 +15,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   const [textAlongCircumference, setTextAlongCircumference] = useState(false)
   const [showFullText, setShowFullText] = useState(false)
   const [dynamicFontSize, setDynamicFontSize] = useState(false)
+  const [debugMinimal, setDebugMinimal] = useState(false)
   const [chartHtml, setChartHtml] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -401,7 +402,8 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         show_zero_values: showZeroValues,
         text_along_circumference: textAlongCircumference,
         show_full_text: showFullText,
-        dynamic_font_size: dynamicFontSize
+        dynamic_font_size: dynamicFontSize,
+        debug_minimal: debugMinimal
       })
 
       if (response.data && response.data.html) {
@@ -818,6 +820,17 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
               * Опции с градиентом требуют выбора столбца значений
             </div>
           )}
+          <br />
+          <label style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <input
+              type="checkbox"
+              checked={debugMinimal}
+              onChange={(e) => setDebugMinimal(e.target.checked)}
+            />
+            <span style={{ color: '#888', fontStyle: 'italic' }}>
+              ДЕБАГ — построить с минимумом опций (как Plotly по умолчанию)
+            </span>
+          </label>
         </div>
 
         <div className="chart-actions">

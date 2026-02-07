@@ -84,7 +84,7 @@ services:
     # Один compose: dev монтируем в /app (исходники для vite dev), прод — в /src, чтобы не затереть /app (там уже собранный dist в образе)
     volumes:
       - ./frontend:${FRONTEND_MOUNT_PATH:-/app}
-      - /app/node_modules
+      - frontend_node_modules:${FRONTEND_MOUNT_PATH:-/app}/node_modules
     depends_on:
       - backend
     networks:
@@ -94,6 +94,7 @@ volumes:
   postgres_data:
   redis_data:
   uploads_data:
+  frontend_node_modules:
 
 networks:
   sunburst_network:

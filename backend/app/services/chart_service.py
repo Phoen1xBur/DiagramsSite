@@ -39,6 +39,7 @@ def create_sunburst_chart(
     show_full_text: bool = False,
     dynamic_font_size: bool = False,
     column_mapping: Optional[Dict[str, str]] = None,
+    debug_minimal: bool = False,
 ) -> tuple:
     """Создает sunburst диаграмму. Возвращает (html, chart_size). column_mapping: canonical_name -> actual_name в данных."""
     try:
@@ -158,6 +159,21 @@ def create_sunburst_chart(
             color_discrete_map=color_map,
             custom_data=[original_values_col] if original_values_col else None,
         )
+
+        # Режим ДЕБАГ: минимум опций, как построит Plotly по умолчанию (для проверки центровки текста)
+        if debug_minimal:
+            fig.update_layout(
+                margin=dict(t=20, l=20, r=20, b=20),
+                width=800,
+                height=800,
+                paper_bgcolor='white',
+                plot_bgcolor='white',
+            )
+            fig.update_traces(branchvalues=branchvalues_mode, rotation=90)
+            html = fig.to_html(include_plotlyjs="inline", full_html=True)
+            html = html.replace("</head>", f'<meta name="plotly-chart-size" content="800,800"></head>')
+            logger.info("HTML графика сгенерирован (режим ДЕБАГ, минимум опций)")
+            return html, 800
         
         # Настройка hover
         if value_col:
@@ -242,10 +258,9 @@ def create_sunburst_chart(
         text_font_size = FONT_SIZE_BASE
         char_px = text_font_size * CHAR_WIDTH_RATIO  # Ширина одного символа в пикселях
         
-        if text_along_circumference:
-            text_orientation = 'tangential'
-        else:
-            text_orientation = 'auto'
+        # Для обычного режима используем горизонтальную ориентацию.
+        # Для режима "по окружности" включаем tangential.
+        text_orientation = 'tangential' if text_along_circumference else 'horizontal'
 
         # === ШАГ 1: Определяем базовый размер диаграммы ===
         # Минимальная толщина кольца в пикселях
@@ -568,8 +583,11 @@ def create_sunburst_chart(
         else:
             text_font_config = dict(size=text_font_size, family="Arial, sans-serif", color="black")
         
+        # Переносы строк через text + textinfo="text"; центровка — скриптом в HTML
+        text_for_plot = wrapped_labels if wrapped_labels else None
+
         fig.update_traces(
-            text=wrapped_labels if wrapped_labels else None,
+            text=text_for_plot if text_for_plot else None,
             textinfo="text",
             hovertext=raw_labels if raw_labels else None,
             hovertemplate=hover_template.replace('%{label}', '%{hovertext}') if raw_labels else hover_template,

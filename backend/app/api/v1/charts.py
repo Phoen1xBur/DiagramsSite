@@ -22,6 +22,7 @@ async def generate_chart(request: ChartRequest):
             show_full_text=request.show_full_text,
             dynamic_font_size=request.dynamic_font_size,
             column_mapping=request.column_mapping,
+            debug_minimal=request.debug_minimal,
         )
         size = chart_size if isinstance(chart_size, int) else 800
         return {"html": html, "chart_width": size, "chart_height": size}
