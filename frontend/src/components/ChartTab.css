@@ -286,6 +286,34 @@
   cursor: not-allowed;
 }
 
+.d3-btn {
+  background: #7b1fa2;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+
+.d3-btn:hover:not(:disabled) {
+  background: #6a1b9a;
+}
+
+.d3-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.d3-sunburst-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .delete-btn {
   background: #f44336;
   color: white;

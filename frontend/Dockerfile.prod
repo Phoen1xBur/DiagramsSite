@@ -3,8 +3,14 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+ENV NODE_OPTIONS=--dns-result-order=ipv4first
+
 COPY package.json package-lock.json* ./
-RUN npm install
+RUN npm config set registry https://registry.npmjs.org/ \
+  && npm config set fetch-retries 5 \
+  && npm config set fetch-retry-maxtimeout 120000 \
+  && npm config set fetch-retry-mintimeout 20000 \
+  && npm install --no-audit --no-fund --progress=false
 
 COPY . .
 ARG VITE_DEBUG=False

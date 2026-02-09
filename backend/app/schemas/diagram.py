@@ -67,6 +67,4 @@ class ChartRequest(BaseModel):
     dynamic_font_size: bool = False
     # canonical_name -> actual_name в данных; для совместимости диаграмм при переименовании столбцов
     column_mapping: Optional[Dict[str, str]] = None
-    # Временный ДЕБАГ: построить диаграмму с минимумом опций (как Plotly по умолчанию)
-    debug_minimal: bool = False
 

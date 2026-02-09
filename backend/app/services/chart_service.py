@@ -39,7 +39,6 @@ def create_sunburst_chart(
     show_full_text: bool = False,
     dynamic_font_size: bool = False,
     column_mapping: Optional[Dict[str, str]] = None,
-    debug_minimal: bool = False,
 ) -> tuple:
     """Создает sunburst диаграмму. Возвращает (html, chart_size). column_mapping: canonical_name -> actual_name в данных."""
     try:
@@ -160,21 +159,6 @@ def create_sunburst_chart(
             custom_data=[original_values_col] if original_values_col else None,
         )
 
-        # Режим ДЕБАГ: минимум опций, как построит Plotly по умолчанию (для проверки центровки текста)
-        if debug_minimal:
-            fig.update_layout(
-                margin=dict(t=20, l=20, r=20, b=20),
-                width=800,
-                height=800,
-                paper_bgcolor='white',
-                plot_bgcolor='white',
-            )
-            fig.update_traces(branchvalues=branchvalues_mode, rotation=90)
-            html = fig.to_html(include_plotlyjs="inline", full_html=True)
-            html = html.replace("</head>", f'<meta name="plotly-chart-size" content="800,800"></head>')
-            logger.info("HTML графика сгенерирован (режим ДЕБАГ, минимум опций)")
-            return html, 800
-        
         # Настройка hover
         if value_col:
             # Всегда показываем реальные значения из custom_data (где 0 это 0, а не 1)
@@ -619,3 +603,134 @@ def create_sunburst_chart(
     except Exception as e:
         logger.exception("Ошибка построения диаграммы")
         return f"<p style='color:red'>Ошибка: {str(e)}</p>", 800
+
+
+def build_d3_payload(
+    data: List[Dict],
+    columns: List[str],
+    hierarchy_cols: List[str],
+    value_col: Optional[str] = None,
+    use_gradient: bool = True,
+    uniform_size: bool = False,
+    show_zero_values: bool = True,
+    text_along_circumference: bool = False,
+    show_full_text: bool = False,
+    dynamic_font_size: bool = False,
+    column_mapping: Optional[Dict[str, str]] = None,
+) -> Dict:
+    """Готовит данные для D3 sunburst (дерево + настройки)."""
+    if not data:
+        raise ValueError("Нет данных.")
+
+    df = pd.DataFrame(data)
+    if column_mapping:
+        rename = {actual: canonical for canonical, actual in column_mapping.items() if actual in df.columns}
+        if rename:
+            df = df.rename(columns=rename)
+
+    use_value_col = None
+    if value_col and value_col in df.columns:
+        df[value_col] = pd.to_numeric(df[value_col], errors="coerce").fillna(0)
+        if not show_zero_values:
+            df = df[df[value_col] > 0]
+        df[value_col] = df[value_col].replace(0, 1)
+        use_value_col = value_col
+
+    if uniform_size and hierarchy_cols:
+        df_for_weights = df.drop_duplicates(subset=hierarchy_cols).copy()
+        children_map = {}
+        for _, row in df_for_weights.iterrows():
+            path = []
+            for level in range(len(hierarchy_cols)):
+                parent_key = tuple(path)
+                child = str(row[hierarchy_cols[level]])
+                children_map.setdefault(parent_key, set()).add(child)
+                path.append(child)
+
+        def compute_weight(row):
+            weight = 1.0
+            path = []
+            for level in range(len(hierarchy_cols)):
+                parent_key = tuple(path)
+                child_count = len(children_map.get(parent_key, [])) or 1
+                weight *= 1.0 / child_count
+                path.append(str(row[hierarchy_cols[level]]))
+            return weight
+
+        df_for_weights["_uniform_weight"] = df_for_weights.apply(compute_weight, axis=1)
+        df = df_for_weights
+        use_value_col = "_uniform_weight"
+
+    if df.empty:
+        raise ValueError("Нет данных для отображения (все значения нулевые).")
+
+    root = {"name": "root", "children": [], "value": 0}
+
+    def get_or_create_child(node, name):
+        children_map = node.setdefault("_children_map", {})
+        child = children_map.get(name)
+        if not child:
+            child = {"name": name, "children": [], "value": 0}
+            children_map[name] = child
+            node["children"].append(child)
+        return child
+
+    for _, row in df.iterrows():
+        node = root
+        for col in hierarchy_cols:
+            node = get_or_create_child(node, str(row[col]))
+        leaf_value = float(row[use_value_col]) if use_value_col else 1.0
+        node["value"] = (node.get("value") or 0) + leaf_value
+
+    def finalize(node):
+        if node.get("children"):
+            total = 0
+            for child in node["children"]:
+                finalize(child)
+                total += child.get("value", 0)
+            if not node.get("value"):
+                node["value"] = total
+        node.pop("_children_map", None)
+
+    finalize(root)
+
+    # If there is only one top-level value, make it the visual root.
+    # This matches Plotly behavior where the center shows the first hierarchy value,
+    # not the column name.
+    if isinstance(root.get("children"), list) and len(root["children"]) == 1:
+        root = root["children"][0]
+    else:
+        # Do not show a synthetic root label; keep center neutral.
+        root["name"] = ""
+
+    palette = [
+        "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
+        "#9467bd", "#8c564b", "#e377c2", "#7f7f7f",
+        "#17becf", "#2e91e5", "#e15f99", "#1ca71c",
+        "#fb0d0d", "#da16ff", "#b68100"
+    ]
+
+    # Match Plotly sizing logic (see create_sunburst_chart).
+    levels_count = max(1, len(hierarchy_cols or []))
+    if hierarchy_cols:
+        leaf_count = df.drop_duplicates(subset=hierarchy_cols).shape[0]
+    else:
+        leaf_count = len(df)
+    MIN_RING_THICKNESS = 80
+    base_chart_size = (levels_count + 1) * MIN_RING_THICKNESS * 2
+    extra_for_leaves = min(960, leaf_count * 12)
+    chart_size = max(800, int(base_chart_size + extra_for_leaves))
+
+    settings = {
+        "textAlongCircumference": text_along_circumference,
+        "showFullText": show_full_text,
+        "dynamicFontSize": dynamic_font_size,
+        "useGradient": use_gradient,
+        "uniformSize": uniform_size,
+        "palette": palette,
+        # Use the same diameter as Plotly for visual parity.
+        "baseSize": chart_size,
+        "maxSize": 5000,
+    }
+
+    return {"tree": root, "settings": settings}

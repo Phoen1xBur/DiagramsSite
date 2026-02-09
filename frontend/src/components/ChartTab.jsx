@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import apiClient from '../api/client'
 import { useNotification } from '../contexts/NotificationContext'
 import SaveAsNewModal from './SaveAsNewModal'
+import D3Sunburst from './D3Sunburst'
 import './ChartTab.css'
 
 function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, openedDiagramId, fileName }) {
@@ -15,8 +16,8 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   const [textAlongCircumference, setTextAlongCircumference] = useState(false)
   const [showFullText, setShowFullText] = useState(false)
   const [dynamicFontSize, setDynamicFontSize] = useState(false)
-  const [debugMinimal, setDebugMinimal] = useState(false)
   const [chartHtml, setChartHtml] = useState('')
+  const [d3Payload, setD3Payload] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
@@ -370,6 +371,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
     setLoading(true)
     setError(null)
     setChartHtml('') // Очищаем предыдущую диаграмму
+    setD3Payload(null)
 
     try {
       // Загружаем сохраненные данные с сервера
@@ -402,8 +404,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         show_zero_values: showZeroValues,
         text_along_circumference: textAlongCircumference,
         show_full_text: showFullText,
-        dynamic_font_size: dynamicFontSize,
-        debug_minimal: debugMinimal
+        dynamic_font_size: dynamicFontSize
       })
 
       if (response.data && response.data.html) {
@@ -425,6 +426,72 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
       
       setError(errorMessage)
       setChartHtml('')
+      setLoading(false)
+      showNotification('Ошибка генерации диаграммы: ' + errorMessage, 'error')
+    }
+  }
+
+  const handleRenderChartD3 = async () => {
+    if (!fileId) {
+      showNotification('Необходимо сохранить файл перед построением диаграммы!', 'warning')
+      return
+    }
+
+    if (selectedColumns.length === 0) {
+      showNotification('Выберите хотя бы один столбец для иерархии!', 'warning')
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+    setChartHtml('')
+    setD3Payload(null)
+    setContentSize({ width: 0, height: 0 })
+
+    try {
+      const fileResponse = await apiClient.get(`/files/${fileId}`)
+      const savedData = fileResponse.data.data
+      const savedColumns = fileResponse.data.columns
+
+      if (!savedData || savedData.length === 0) {
+        showNotification('Нет данных для построения диаграммы!', 'warning')
+        setLoading(false)
+        return
+      }
+
+      const savedColumnsSet = new Set(savedColumns)
+      const hierarchyToSend = selectedColumns.filter(c => savedColumnsSet.has(c))
+      if (hierarchyToSend.length === 0) {
+        showNotification('Выберите столбцы из списка текущего файла. Часть выбранных столбцов в этом файле отсутствует.', 'warning')
+        setLoading(false)
+        return
+      }
+
+      const response = await apiClient.post('/charts/generate-d3', {
+        data: savedData,
+        columns: savedColumns,
+        hierarchy_columns: hierarchyToSend,
+        value_column: (valueColumn && savedColumnsSet.has(valueColumn)) ? valueColumn : null,
+        use_gradient: useGradient,
+        uniform_size: uniformSize,
+        show_zero_values: showZeroValues,
+        text_along_circumference: textAlongCircumference,
+        show_full_text: showFullText,
+        dynamic_font_size: dynamicFontSize
+      })
+
+      if (response.data && response.data.tree) {
+        setD3Payload(response.data)
+        setLoading(false)
+      } else {
+        throw new Error('Неверный формат ответа от сервера')
+      }
+    } catch (err) {
+      console.error('Ошибка генерации D3 диаграммы:', err)
+      const errorMessage = err.response?.data?.detail || err.message || 'Ошибка генерации диаграммы'
+      setError(errorMessage)
+      setChartHtml('')
+      setD3Payload(null)
       setLoading(false)
       showNotification('Ошибка генерации диаграммы: ' + errorMessage, 'error')
     }
@@ -820,22 +887,14 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
               * Опции с градиентом требуют выбора столбца значений
             </div>
           )}
-          <br />
-          <label style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <input
-              type="checkbox"
-              checked={debugMinimal}
-              onChange={(e) => setDebugMinimal(e.target.checked)}
-            />
-            <span style={{ color: '#888', fontStyle: 'italic' }}>
-              ДЕБАГ — построить с минимумом опций (как Plotly по умолчанию)
-            </span>
-          </label>
         </div>
 
         <div className="chart-actions">
           <button type="button" className="primary" onClick={handleRenderChart} disabled={loading}>
             {loading ? 'Построение...' : 'Построить диаграмму'}
+          </button>
+          <button type="button" className="d3-btn" onClick={handleRenderChartD3} disabled={loading}>
+            {loading ? 'Построение...' : 'Диаграмма D3'}
           </button>
           {user && chartHtml && (
             <>
@@ -946,7 +1005,41 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         </div>
       )}
 
-      {!loading && !chartHtml && !error && (
+      {!loading && d3Payload && (
+        <div className="plot">
+          <div
+            className="plot-scroll"
+            style={
+              contentSize.width && contentSize.height
+                ? {
+                    width: `${(contentSize.width * zoomPercent) / 100}px`,
+                    height: `${(contentSize.height * zoomPercent) / 100}px`
+                  }
+                : { width: '100%', height: '100%' }
+            }
+          >
+            <div
+              className="plot-inner"
+              style={{
+                width: contentSize.width ? `${contentSize.width}px` : '100%',
+                height: contentSize.height ? `${contentSize.height}px` : '100%',
+                transform: `scale(${zoomPercent / 100})`
+              }}
+            >
+              <D3Sunburst
+                payload={d3Payload}
+                onSizeChange={(size) => {
+                  if (size && size !== contentSize.width) {
+                    setContentSize({ width: size, height: size })
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!loading && !chartHtml && !d3Payload && !error && (
         <div className="plot" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
           <p>Диаграмма будет отображена здесь после построения</p>
         </div>
