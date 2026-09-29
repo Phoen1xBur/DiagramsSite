@@ -270,7 +270,8 @@ function D3Sunburst({ payload, onSizeChange }) {
           while (a.depth > 1) a = a.parent
           const base = colorMap[a.data.name] || color(a.data.name)
           if (!useGradient || d.depth <= 1) return base
-          return blend(base, Math.min(0.55, 0.14 * (d.depth - 1)))
+          // Lighten nested rings so depth gradient is clearly visible
+          return blend(base, Math.min(0.6, 0.22 * (d.depth - 1)))
         })
         .attr('fill-opacity', d => (arcVisible(d.current) ? (d.children ? 0.7 : 0.55) : 0))
         .attr('stroke', 'none')
@@ -300,8 +301,26 @@ function D3Sunburst({ payload, onSizeChange }) {
         return `rotate(${deg - 90}) translate(${midR},0) rotate(${flip ? 180 : 0})`
       }
 
+      const defs = svg.append('defs')
+
+      const labelAtMid = (d) => {
+        // Explicit mid-angle / mid-radius (avoids inner-radius bias on wide slices).
+        const midAngle = (d.x0 + d.x1) / 2
+        const midR = (d.y0 + d.y1) / 2
+        const cx = Math.sin(midAngle) * midR
+        const cy = -Math.cos(midAngle) * midR
+        return [cx, cy]
+      }
+
       const renderLabels = () => {
         labelG.selectAll('*').remove()
+        defs.selectAll('clipPath').remove()
+        nodes.forEach((node) => {
+          defs.append('clipPath')
+            .attr('id', `d3-clip-${node._idx}`)
+            .append('path')
+            .attr('d', arc(node.current))
+        })
         nodes.forEach((node) => {
           if (!labelVisible(node.current)) return
           const lines = computeLines(node)
@@ -315,12 +334,12 @@ function D3Sunburst({ payload, onSizeChange }) {
               .attr('transform', labelTransformTangential(dCur))
               .attr('dominant-baseline', 'middle')
           } else {
-            // Horizontal: centroid of the arc path = geometric slice center.
-            const [cx, cy] = arc.centroid(dCur)
+            const [cx, cy] = labelAtMid(dCur)
             t = labelG
               .append('text')
               .attr('transform', `translate(${cx},${cy})`)
               .attr('dominant-baseline', 'middle')
+              .attr('clip-path', `url(#d3-clip-${node._idx})`)
           }
 
           t.attr('text-anchor', 'middle')

@@ -8,7 +8,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 20000;
   animation: fadeIn 0.2s ease-in;
 }
 
@@ -111,4 +111,27 @@
 
 .modal-actions button.secondary:hover {
   background: #e0e0e0;
+}
+
+
+.save-as-new-overlay {
+  z-index: 20000;
+}
+
+.save-as-new-modal {
+  position: relative;
+  z-index: 20001;
+  background: #fff !important;
+  color: #212529;
+}
+
+.save-as-new-modal .name-input {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  width: 100% !important;
+  min-height: 42px;
+  background: #fff !important;
+  color: #212529 !important;
+  border: 1px solid #ddd !important;
 }

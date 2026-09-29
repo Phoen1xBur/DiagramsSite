@@ -394,16 +394,45 @@
 }
 
 .plot-area--fullscreen {
-  background: #fff;
+  /* Restore app purple gradient — fullscreen leaves the body backdrop */
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   padding: 16px;
   box-sizing: border-box;
   overflow: auto;
   height: 100%;
+  width: 100%;
+}
+
+.plot-area--fullscreen .chart-zoom-bar {
+  flex-wrap: wrap;
+  row-gap: 8px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.plot-area--fullscreen .chart-zoom-bar .zoom-btn,
+.plot-area--fullscreen .chart-zoom-bar .zoom-reset {
+  background: #fff;
+  color: #333;
+  border: 1px solid #c5c5c5;
+  min-height: 36px;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+
+.plot-area--fullscreen .chart-zoom-bar .zoom-label,
+.plot-area--fullscreen .chart-zoom-bar .zoom-value {
+  color: #222;
 }
 
 .plot-area--fullscreen .plot {
-  height: calc(100vh - 32px);
-  box-shadow: none;
+  height: calc(100vh - 96px);
+  min-height: 320px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
 }
 
 

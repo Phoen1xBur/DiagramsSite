@@ -474,8 +474,113 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
     if (!clone.getAttribute('xmlns')) {
       clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
     }
+    // Inline computed size so rasterization is crisp even if CSS sized the live node.
+    const bbox = svgEl.getBoundingClientRect()
+    if (!clone.getAttribute('width') && bbox.width) clone.setAttribute('width', String(Math.round(bbox.width)))
+    if (!clone.getAttribute('height') && bbox.height) clone.setAttribute('height', String(Math.round(bbox.height)))
     const xml = new XMLSerializer().serializeToString(clone)
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`
+  }
+
+  const loadImage = (src) => new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('Не удалось растрировать изображение диаграммы'))
+    img.src = src
+  })
+
+  const canvasToJpegBytes = (canvas, quality = 0.92) => new Promise((resolve, reject) => {
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        reject(new Error('Не удалось создать изображение для PDF'))
+        return
+      }
+      const buf = await blob.arrayBuffer()
+      resolve(new Uint8Array(buf))
+    }, 'image/jpeg', quality)
+  })
+
+  // Minimal single-page PDF with an embedded JPEG — no window.print / about:blank.
+  const jpegToPdfBlob = (jpegBytes, imgWidthPx, imgHeightPx) => {
+    const pxToPt = 72 / 96
+    const pageW = Math.max(1, imgWidthPx * pxToPt)
+    const pageH = Math.max(1, imgHeightPx * pxToPt)
+    const encoder = new TextEncoder()
+    const parts = []
+    const offsets = [0]
+
+    const add = (s) => {
+      if (typeof s === 'string') parts.push(encoder.encode(s))
+      else parts.push(s)
+    }
+
+    add('%PDF-1.4\n')
+    const mark = () => {
+      let n = 0
+      for (const p of parts) n += p.length
+      offsets.push(n)
+    }
+
+    mark()
+    add('1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj\n')
+    mark()
+    add('2 0 obj<< /Type /Pages /Kids [3 0 R] /Count 1 >>endobj\n')
+    mark()
+    add(`3 0 obj<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW.toFixed(2)} ${pageH.toFixed(2)}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>endobj\n`)
+    mark()
+    add(`4 0 obj<< /Type /XObject /Subtype /Image /Width ${imgWidthPx} /Height ${imgHeightPx} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpegBytes.length} >>stream\n`)
+    add(jpegBytes)
+    add('\nendstream\nendobj\n')
+    mark()
+    const content = `q ${pageW.toFixed(2)} 0 0 ${pageH.toFixed(2)} 0 0 cm /Im0 Do Q\n`
+    add(`5 0 obj<< /Length ${content.length} >>stream\n${content}endstream\nendobj\n`)
+
+    const bodyLen = parts.reduce((n, p) => n + p.length, 0)
+    const xrefStart = bodyLen
+    let xref = `xref\n0 ${offsets.length}\n0000000000 65535 f \n`
+    for (let i = 1; i < offsets.length; i++) {
+      xref += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`
+    }
+    add(xref)
+    add(`trailer<< /Size ${offsets.length} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`)
+
+    const total = parts.reduce((n, p) => n + p.length, 0)
+    const out = new Uint8Array(total)
+    let off = 0
+    for (const part of parts) {
+      out.set(part, off)
+      off += part.length
+    }
+    return new Blob([out], { type: 'application/pdf' })
+  }
+
+  const downloadBlob = (blob, filename) => {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.rel = 'noopener'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 2000)
+  }
+
+  const rasterizeSvgElement = async (svgEl, scale = 2) => {
+    const bbox = svgEl.getBoundingClientRect()
+    const width = Math.max(1, Math.round(bbox.width || contentSize.width || 800))
+    const height = Math.max(1, Math.round(bbox.height || contentSize.height || 800))
+    const dataUrl = svgToDataUrl(svgEl)
+    const img = await loadImage(dataUrl)
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(width * scale)
+    canvas.height = Math.round(height * scale)
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+    const jpeg = await canvasToJpegBytes(canvas)
+    return { jpeg, width: canvas.width, height: canvas.height }
   }
 
   const handleExportPdf = async () => {
@@ -485,62 +590,59 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
       return
     }
     try {
-      let imgSrc = null
-      let width = contentSize.width || 800
-      let height = contentSize.height || 800
+      showNotification('Готовим PDF…', 'info')
+      let raster = null
 
       if (target.kind === 'svg') {
-        const bbox = target.el.getBoundingClientRect()
-        width = Math.max(width, Math.round(bbox.width) || width)
-        height = Math.max(height, Math.round(bbox.height) || height)
-        imgSrc = svgToDataUrl(target.el)
+        raster = await rasterizeSvgElement(target.el, 2)
       } else {
-        // Plotly HTML in iframe: rasterize via foreignObject-less canvas draw of svg if present,
-        // otherwise open print of iframe document.
-        const idoc = target.el.contentDocument
-        const plotSvg = idoc?.querySelector('svg.main-svg, .plotly svg, svg')
-        if (plotSvg) {
-          const bbox = plotSvg.getBoundingClientRect()
-          width = Math.max(width, Math.round(bbox.width) || width)
-          height = Math.max(height, Math.round(bbox.height) || height)
-          imgSrc = svgToDataUrl(plotSvg)
+        const iframe = target.el
+        const idoc = iframe.contentDocument
+        const iwin = iframe.contentWindow
+        // Prefer Plotly.toImage when available (merges layered SVGs cleanly).
+        const gd = idoc?.querySelector('.js-plotly-plot, .plotly-graph-div, [class*="plotly"]')
+        if (iwin?.Plotly?.toImage && gd) {
+          const w = Math.max(800, contentSize.width || 800)
+          const h = Math.max(800, contentSize.height || 800)
+          const pngUrl = await iwin.Plotly.toImage(gd, { format: 'png', width: w, height: h, scale: 2 })
+          const img = await loadImage(pngUrl)
+          const canvas = document.createElement('canvas')
+          canvas.width = img.naturalWidth || w * 2
+          canvas.height = img.naturalHeight || h * 2
+          const ctx = canvas.getContext('2d')
+          ctx.fillStyle = '#ffffff'
+          ctx.fillRect(0, 0, canvas.width, canvas.height)
+          ctx.drawImage(img, 0, 0)
+          const jpeg = await canvasToJpegBytes(canvas)
+          raster = { jpeg, width: canvas.width, height: canvas.height }
         } else {
-          const w = window.open('', '_blank', 'noopener,noreferrer')
-          if (!w) {
-            showNotification('Разрешите всплывающие окна для экспорта PDF', 'warning')
+          // Combine Plotly's stacked main-svg layers onto one canvas.
+          const svgs = Array.from(idoc?.querySelectorAll('svg.main-svg, .plotly svg') || [])
+          if (!svgs.length) {
+            showNotification('Не найден SVG диаграммы для экспорта в PDF', 'error')
             return
           }
-          w.document.open()
-          w.document.write(idoc.documentElement.outerHTML)
-          w.document.close()
-          w.focus()
-          setTimeout(() => {
-            w.print()
-          }, 400)
-          return
+          const width = Math.max(...svgs.map(s => Math.round(s.getBoundingClientRect().width || 0)), contentSize.width || 800)
+          const height = Math.max(...svgs.map(s => Math.round(s.getBoundingClientRect().height || 0)), contentSize.height || 800)
+          const scale = 2
+          const canvas = document.createElement('canvas')
+          canvas.width = Math.round(width * scale)
+          canvas.height = Math.round(height * scale)
+          const ctx = canvas.getContext('2d')
+          ctx.fillStyle = '#ffffff'
+          ctx.fillRect(0, 0, canvas.width, canvas.height)
+          for (const svg of svgs) {
+            const img = await loadImage(svgToDataUrl(svg))
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+          }
+          const jpeg = await canvasToJpegBytes(canvas)
+          raster = { jpeg, width: canvas.width, height: canvas.height }
         }
       }
 
-      const w = window.open('', '_blank', 'noopener,noreferrer')
-      if (!w) {
-        showNotification('Разрешите всплывающие окна для экспорта PDF', 'warning')
-        return
-      }
-      const title = 'Диаграмма'
-      w.document.open()
-      w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${title}</title>
-<style>
-  @page { size: auto; margin: 10mm; }
-  html, body { margin: 0; padding: 0; background: #fff; }
-  .wrap { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-  img { max-width: 100%; max-height: 100vh; width: ${width}px; height: auto; }
-</style></head><body><div class="wrap"><img src="${imgSrc}" width="${width}" height="${height}" alt="${title}"/></div>
-<script>
-  const img = document.querySelector('img');
-  const go = () => { setTimeout(() => { window.focus(); window.print(); }, 200); };
-  if (img.complete) go(); else img.onload = go;
-</script></body></html>`)
-      w.document.close()
+      const pdfBlob = jpegToPdfBlob(raster.jpeg, raster.width, raster.height)
+      downloadBlob(pdfBlob, 'diagram.pdf')
+      showNotification('PDF скачан', 'success')
     } catch (err) {
       console.error('PDF export error:', err)
       showNotification('Не удалось экспортировать PDF: ' + (err.message || err), 'error')
@@ -691,7 +793,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
 
   const handleSaveDiagram = async () => {
     // Сохранение/обновление открытой диаграммы
-    if (!fileId || !user || !chartHtml) {
+    if (!fileId || !user || (!chartHtml && !d3Payload)) {
       showNotification('Для сохранения необходимо построить диаграмму и быть авторизованным пользователем', 'warning')
       return
     }
@@ -733,7 +835,11 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   }
 
   const handleSaveAsNew = async (diagramName) => {
-    if (!fileId || !user || !chartHtml) {
+    if (!diagramName || !String(diagramName).trim()) {
+      showNotification('Укажите наименование диаграммы', 'warning')
+      return
+    }
+    if (!fileId || !user || (!chartHtml && !d3Payload)) {
       showNotification('Для сохранения необходимо построить диаграмму и быть авторизованным пользователем', 'warning')
       return
     }
@@ -1131,7 +1237,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
           <button type="button" className="d3-btn" onClick={handleRenderChartD3} disabled={loading}>
             {loading ? 'Построение...' : 'Диаграмма D3'}
           </button>
-          {user && chartHtml && (
+          {user && (chartHtml || d3Payload) && (
             <>
               <button 
                 type="button" 
@@ -1162,9 +1268,11 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
       )}
 
       <SaveAsNewModal
+        key={saveAsNewModal ? 'save-as-new-open' : 'save-as-new-closed'}
         isOpen={saveAsNewModal}
         onClose={() => setSaveAsNewModal(false)}
         onSave={handleSaveAsNew}
+        onEmptyName={() => showNotification('Укажите наименование диаграммы', 'warning')}
       />
 
       <div
@@ -1223,7 +1331,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
           className="zoom-btn"
           onClick={handleExportPdf}
           disabled={!chartHtml && !d3Payload}
-          title="Экспорт в PDF (диалог печати → Сохранить как PDF)"
+          title="Скачать диаграмму в PDF"
         >
           PDF
         </button>

@@ -262,17 +262,12 @@ def create_sunburst_chart(
         if df.empty:
             return "<p style='color:red'>Нет данных для отображения (все значения нулевые).</p>", 800
         
-        # Настройка цветов для градиента
-        color_col, color_map = None, None
-        if uniform_size:
-            # При равномерных секторах градиент по значениям не имеет смысла
-            use_gradient = False
-        if use_gradient and value_col and original_values_col:
-            df['_color_cat'] = df[original_values_col].apply(_get_color_category)
-            color_col = '_color_cat'
-            color_map = COLOR_MAP
-        else:
-            color_col = hierarchy_cols[-1] if hierarchy_cols else None
+        # User L1 color overrides (must NOT be wiped — previous bug set color_map=None).
+        user_color_map = dict(color_map or {})
+        # "use_gradient" UI means depth lightening of nested sectors, NOT value buckets.
+        depth_gradient = bool(use_gradient)
+        # px.sunburst still needs a color column; final fills come from user_color_map + depth blend.
+        color_col = hierarchy_cols[-1] if hierarchy_cols else None
         
         # Определяем режим суммирования значений
         # Используем total, так как значения заданы только для листьев
@@ -283,13 +278,17 @@ def create_sunburst_chart(
         if df.empty:
             return "<p style='color:red'>No data to display.</p>", 800
 
+        # Reverse row order so Plotly's native CCW layout reads clockwise
+        # from 12:00 in the same order as the table (top → bottom).
+        df_plot = df.iloc[::-1].reset_index(drop=True)
+
         fig = px.sunburst(
-            df,
+            df_plot,
             path=hierarchy_cols,
             values=use_value_col,
             color=color_col,
-            color_discrete_sequence=None if color_map else px.colors.qualitative.Pastel,
-            color_discrete_map=color_map,
+            color_discrete_sequence=px.colors.qualitative.Pastel,
+            color_discrete_map=None,
             custom_data=[original_values_col] if original_values_col else None,
         )
 
@@ -524,7 +523,7 @@ def create_sunburst_chart(
         # === ШАГ 3: Обработка текста в зависимости от режима ===
         RING_PADDING = 10  # Отступ сверху и снизу от текста в пикселях
         FONT_SIZE_MIN = 12  # Минимальный размер шрифта
-        FONT_SIZE_MAX = 60  # Максимальный размер шрифта
+        FONT_SIZE_MAX = 28  # Cap so short labels (N/A, Участники) do not blow up
         
         # Массив размеров шрифта для каждого сектора (динамический размер)
         font_sizes = []
@@ -670,7 +669,7 @@ def create_sunburst_chart(
                 # Уникальные цвета для всех узлов первого уровня (depth == 1)
                 level_one_nodes = [node_id for node_id in original_ids_for_colors if get_depth_c(node_id) == 1]
                 # Prefer manual L1 overrides (by sector label); fall back to palette.
-                overrides = color_map or {}
+                overrides = user_color_map
                 root_color_map = {}
                 for i, node_id in enumerate(level_one_nodes):
                     label = str(original_labels_for_colors[id_to_index_c[node_id]])
@@ -686,12 +685,13 @@ def create_sunburst_chart(
                         color = root_color_map[node_id]
                     elif parent_id in root_color_map:
                         base = root_color_map[parent_id]
-                        color = blend_with_white(base, 0.15) if use_gradient else base
+                        color = blend_with_white(base, min(0.55, 0.22 * max(1, get_depth_c(node_id) - 1))) if depth_gradient else base
                     elif parent_id in ('', None):
                         color = root_color_map.get(node_id, palette[0])
                     else:
                         parent_color = assign_color(parent_id)
-                        color = blend_with_white(parent_color, 0.15) if use_gradient else parent_color
+                        depth = get_depth_c(node_id)
+                        color = blend_with_white(parent_color, min(0.55, 0.22)) if depth_gradient else parent_color
                     node_colors[idx] = color
                     return color
 
@@ -718,8 +718,10 @@ def create_sunburst_chart(
             insidetextorientation=text_orientation,
             branchvalues=branchvalues_mode,
             sort=False,
-            # 0 => first sector at 12:00, continuing clockwise (parity with D3).
-            rotation=0,
+            # Plotly places the first sector at 3:00 and advances CCW.
+            # rotation=90 moves the start to 12:00; combined with reversed row
+            # order above, table top→bottom reads clockwise from 12:00.
+            rotation=90,
             maxdepth=len(hierarchy_cols),
         )
         if node_colors:

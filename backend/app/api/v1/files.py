@@ -100,6 +100,25 @@ async def upload_file(
         else:
             df = pd.read_excel(file_path)
         
+        # Drop phantom index / blank header columns that shift export headers by one
+        # (Excel often yields "Unnamed: 0" when a leading empty column or index was saved).
+        keep_cols = []
+        for col in df.columns:
+            name = str(col).strip()
+            if not name or name.lower().startswith('unnamed'):
+                # Keep only if the column actually has non-empty values under a real use-case;
+                # otherwise it becomes a header-less leading field and shifts all labels.
+                series = df[col]
+                if series.isna().all() or (series.astype(str).str.strip() == '').all():
+                    continue
+                if name.lower().startswith('unnamed'):
+                    continue
+            keep_cols.append(col)
+        if keep_cols:
+            df = df.loc[:, keep_cols]
+        else:
+            df = df.copy()
+
         # Конвертируем в JSON-совместимый формат
         data = df.fillna("").to_dict('records')
         columns = [str(col) for col in df.columns]

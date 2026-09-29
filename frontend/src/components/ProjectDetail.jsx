@@ -118,6 +118,88 @@ function ProjectDetail() {
 
   const currentFileName = (fileId || currentData) ? (projectFiles.find(f => f.id === fileId)?.original_filename || pendingFileName || '') : ''
 
+  const buildExportMatrix = (cols, rows) => {
+    const headers = (cols || []).map(c => String(c ?? ''))
+    const body = (rows || []).map(row => headers.map(col => {
+      const raw = row?.[col]
+      return raw === null || raw === undefined ? '' : String(raw)
+    }))
+    return { headers, body }
+  }
+
+  const downloadBlob = (blob, filename) => {
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  const escapeCsv = (value) => {
+    const s = value === null || value === undefined ? '' : String(value)
+    if (/[",\n\r;]/.test(s)) return '"' + s.replace(/"/g, '""') + '"'
+    return s
+  }
+
+  const exportAsCsv = (cols, rows, filename) => {
+    const { headers, body } = buildExportMatrix(cols, rows)
+    const csv = [headers, ...body].map(line => line.map(escapeCsv).join(',')).join('\n')
+    downloadBlob(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' }), filename)
+  }
+
+  const xmlEscape = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+
+  // SpreadsheetML (.xls) — Excel opens with headers aligned 1:1 to data columns.
+  // Avoids CSV locale/comma-decimal column shifts that made headers look off-by-one.
+  const exportAsXlsx = async (cols, rows, filename) => {
+    const { headers, body } = buildExportMatrix(cols, rows)
+    const cell = (v) => `<Cell><Data ss:Type="String">${xmlEscape(v)}</Data></Cell>`
+    const rowXml = (vals) => `<Row>${vals.map(cell).join('')}</Row>`
+    const xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+<Worksheet ss:Name="Данные"><Table>
+${rowXml(headers)}
+${body.map(rowXml).join('\n')}
+</Table></Worksheet></Workbook>`
+    const outName = filename.toLowerCase().endsWith('.xls')
+      ? filename
+      : filename.replace(/\.xlsx$/i, '.xls')
+    downloadBlob(
+      new Blob(['\ufeff' + xml], { type: 'application/vnd.ms-excel;charset=utf-8;' }),
+      outName.endsWith('.xls') ? outName : `${outName}.xls`
+    )
+  }
+
+  const exportTable = async (cols, rows, filenameBase) => {
+    if (!cols || !cols.length || !rows || !rows.length) {
+      showNotification('Нет данных для экспорта', 'warning')
+      return
+    }
+    const base = (filenameBase || 'data').replace(/\s+/g, '_')
+    const lower = base.toLowerCase()
+    if (lower.endsWith('.csv')) {
+      exportAsCsv(cols, rows, base)
+    } else {
+      // Default to Excel SpreadsheetML; keep one header cell per data column.
+      const name = lower.endsWith('.xlsx')
+        ? base.slice(0, -5) + '.xls'
+        : (lower.endsWith('.xls') ? base : base + '.xls')
+      await exportAsXlsx(cols, rows, name)
+    }
+  }
+
+
   const handleExportFile = async (fileIdToExport, fileNameForDownload) => {
     try {
       const fileResponse = await apiClient.get(`/files/${fileIdToExport}`)
@@ -127,67 +209,20 @@ function ProjectDetail() {
         showNotification('В файле нет данных для экспорта', 'warning')
         return
       }
-      // Названия и порядок столбцов как сохранены (как ввёл пользователь)
-      const csvContent = [
-        cols.join(','),
-        ...data.map(row =>
-          cols.map(col => {
-            const raw = row[col]
-            const value = raw === null || raw === undefined ? '' : String(raw)
-            if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-              return `"${value.replace(/"/g, '""')}"`
-            }
-            return value
-          }).join(',')
-        )
-      ].join('\n')
-      const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      const name = (fileNameForDownload || 'data').replace(/\s+/g, '_')
-      link.download = name.toLowerCase().endsWith('.csv') ? name : name + '.csv'
-      link.style.visibility = 'hidden'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      URL.revokeObjectURL(url)
+      await exportTable(cols, data, fileNameForDownload || 'data')
       showNotification('Файл экспортирован', 'success')
     } catch (err) {
       showNotification('Ошибка экспорта: ' + (err.response?.data?.detail || err.message), 'error')
     }
   }
 
-  const handleExportCurrentFile = () => {
+  const handleExportCurrentFile = async () => {
     if (!currentData || currentData.length === 0) {
       showNotification('Нет данных для экспорта!', 'warning')
       return
     }
     try {
-      // Текущие названия столбцов (как ввёл пользователь) и текущий порядок столбцов
-      const csvContent = [
-        columns.join(','),
-        ...currentData.map(row =>
-          columns.map(col => {
-            const raw = row[col]
-            const value = raw === null || raw === undefined ? '' : String(raw)
-            if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-              return `"${value.replace(/"/g, '""')}"`
-            }
-            return value
-          }).join(',')
-        )
-      ].join('\n')
-      const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = (currentFileName || 'data').replace(/\s+/g, '_') + (currentFileName?.toLowerCase().endsWith('.csv') ? '' : '.csv')
-      link.style.visibility = 'hidden'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      URL.revokeObjectURL(url)
+      await exportTable(columns, currentData, currentFileName || 'data')
       showNotification('Данные экспортированы!', 'success')
     } catch (err) {
       showNotification('Ошибка экспорта: ' + err.message, 'error')
@@ -358,7 +393,7 @@ function ProjectDetail() {
                           <button
                             className="export-file-btn-small"
                             onClick={() => handleExportFile(file.id, file.original_filename || `Файл #${file.id}`)}
-                            title="Экспорт в CSV"
+                            title="Экспорт в Excel"
                           >
                             💾
                           </button>
