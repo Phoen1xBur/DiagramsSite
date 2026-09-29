@@ -547,12 +547,13 @@ def create_sunburst_chart(
                     if node_id in root_color_map:
                         color = root_color_map[node_id]
                     elif parent_id in root_color_map:
-                        color = blend_with_white(root_color_map[parent_id], 0.15)
+                        base = root_color_map[parent_id]
+                        color = blend_with_white(base, 0.15) if use_gradient else base
                     elif parent_id in ('', None):
                         color = root_color_map.get(node_id, palette[0])
                     else:
                         parent_color = assign_color(parent_id)
-                        color = blend_with_white(parent_color, 0.15)
+                        color = blend_with_white(parent_color, 0.15) if use_gradient else parent_color
                     node_colors[idx] = color
                     return color
 
@@ -579,7 +580,8 @@ def create_sunburst_chart(
             insidetextorientation=text_orientation,
             branchvalues=branchvalues_mode,
             sort=False,
-            rotation=90,
+            # 0 => first sector at 12:00, continuing clockwise (parity with D3).
+            rotation=0,
             maxdepth=len(hierarchy_cols),
         )
         if node_colors:
@@ -664,6 +666,8 @@ def build_d3_payload(
     if df.empty:
         raise ValueError("Нет данных для отображения (все значения нулевые).")
 
+    # Children are appended in first-seen order while iterating df rows,
+    # so sibling order matches the table (no value-based reordering).
     root = {"name": "root", "children": [], "value": 0}
 
     def get_or_create_child(node, name):

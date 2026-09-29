@@ -381,3 +381,27 @@
   flex-shrink: 0;
 }
 
+
+
+.chart-zoom-bar .zoom-spacer {
+  flex: 1;
+  min-width: 8px;
+}
+
+.plot-area {
+  position: relative;
+  width: 100%;
+}
+
+.plot-area--fullscreen {
+  background: #fff;
+  padding: 16px;
+  box-sizing: border-box;
+  overflow: auto;
+  height: 100%;
+}
+
+.plot-area--fullscreen .plot {
+  height: calc(100vh - 32px);
+  box-shadow: none;
+}

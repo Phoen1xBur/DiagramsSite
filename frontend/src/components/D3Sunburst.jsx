@@ -22,6 +22,7 @@ function D3Sunburst({ payload, onSizeChange }) {
     const maxSize = settings?.maxSize || 5000
     const showFullText = Boolean(settings?.showFullText)
     const textAlongCircumference = Boolean(settings?.textAlongCircumference)
+    const useGradient = settings?.useGradient !== false
 
     const diameter = Math.min(maxSize, baseSize)
     const radius = diameter / 2
@@ -29,8 +30,11 @@ function D3Sunburst({ payload, onSizeChange }) {
     const root = d3
       .hierarchy(tree)
       .sum(d => (d.children?.length ? 0 : (d.value || 0)))
-      .sort((a, b) => b.value - a.value)
+      // Preserve input/table sibling order (do not reorder by value).
+      .sort(null)
 
+    // D3 angles: 0 at 12:00, increasing clockwise. With sort(null), sibling
+    // order matches the table / backend children array from 12:00 CW.
     const partition = d3.partition().size([2 * Math.PI, radius])
     partition(root)
     root.each(d => {
@@ -246,7 +250,8 @@ function D3Sunburst({ payload, onSizeChange }) {
         let a = d
         while (a.depth > 1) a = a.parent
         const base = color(a.data.name)
-        return d.depth <= 1 ? base : blend(base, Math.min(0.55, 0.14 * (d.depth - 1)))
+        if (!useGradient || d.depth <= 1) return base
+        return blend(base, Math.min(0.55, 0.14 * (d.depth - 1)))
       })
       .attr('fill-opacity', d => (arcVisible(d.current) ? (d.children ? 0.65 : 0.45) : 0))
       // User asked to remove the border/separators.

@@ -29,6 +29,8 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   const [zoomPercent, setZoomPercent] = useState(100)
   const [contentSize, setContentSize] = useState({ width: 0, height: 0 })
   const chartContainerRef = useRef(null)
+  const plotAreaRef = useRef(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const columnsContainerRef = useRef(null)
   const autoScrollIntervalRef = useRef(null)
 
@@ -355,6 +357,129 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
 
   const handleZoomChange = (value) => {
     setZoomPercent(clampZoom(value))
+  }
+
+  useEffect(() => {
+    const onFsChange = () => {
+      const fsEl = document.fullscreenElement || document.webkitFullscreenElement
+      setIsFullscreen(Boolean(fsEl && plotAreaRef.current && (fsEl === plotAreaRef.current || plotAreaRef.current.contains(fsEl))))
+    }
+    document.addEventListener('fullscreenchange', onFsChange)
+    document.addEventListener('webkitfullscreenchange', onFsChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange)
+      document.removeEventListener('webkitfullscreenchange', onFsChange)
+    }
+  }, [])
+
+  const handleToggleFullscreen = async () => {
+    const el = plotAreaRef.current
+    if (!el) return
+    try {
+      const fsEl = document.fullscreenElement || document.webkitFullscreenElement
+      if (fsEl) {
+        if (document.exitFullscreen) await document.exitFullscreen()
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen()
+      } else if (el.requestFullscreen) {
+        await el.requestFullscreen()
+      } else if (el.webkitRequestFullscreen) {
+        el.webkitRequestFullscreen()
+      } else {
+        showNotification('Полноэкранный режим не поддерживается в этом браузере', 'warning')
+      }
+    } catch (err) {
+      console.error('Fullscreen error:', err)
+      showNotification('Не удалось переключить полноэкранный режим', 'error')
+    }
+  }
+
+  const getChartCaptureTarget = () => {
+    // Prefer live D3 SVG; fall back to Plotly iframe document body.
+    const d3Svg = document.querySelector('.d3-sunburst-container svg')
+    if (d3Svg) return { kind: 'svg', el: d3Svg }
+    const iframe = chartContainerRef.current?.querySelector('iframe')
+    if (iframe?.contentDocument?.body) {
+      return { kind: 'iframe', el: iframe }
+    }
+    return null
+  }
+
+  const svgToDataUrl = (svgEl) => {
+    const clone = svgEl.cloneNode(true)
+    if (!clone.getAttribute('xmlns')) {
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    }
+    const xml = new XMLSerializer().serializeToString(clone)
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`
+  }
+
+  const handleExportPdf = async () => {
+    const target = getChartCaptureTarget()
+    if (!target) {
+      showNotification('Сначала постройте диаграмму', 'warning')
+      return
+    }
+    try {
+      let imgSrc = null
+      let width = contentSize.width || 800
+      let height = contentSize.height || 800
+
+      if (target.kind === 'svg') {
+        const bbox = target.el.getBoundingClientRect()
+        width = Math.max(width, Math.round(bbox.width) || width)
+        height = Math.max(height, Math.round(bbox.height) || height)
+        imgSrc = svgToDataUrl(target.el)
+      } else {
+        // Plotly HTML in iframe: rasterize via foreignObject-less canvas draw of svg if present,
+        // otherwise open print of iframe document.
+        const idoc = target.el.contentDocument
+        const plotSvg = idoc?.querySelector('svg.main-svg, .plotly svg, svg')
+        if (plotSvg) {
+          const bbox = plotSvg.getBoundingClientRect()
+          width = Math.max(width, Math.round(bbox.width) || width)
+          height = Math.max(height, Math.round(bbox.height) || height)
+          imgSrc = svgToDataUrl(plotSvg)
+        } else {
+          const w = window.open('', '_blank', 'noopener,noreferrer')
+          if (!w) {
+            showNotification('Разрешите всплывающие окна для экспорта PDF', 'warning')
+            return
+          }
+          w.document.open()
+          w.document.write(idoc.documentElement.outerHTML)
+          w.document.close()
+          w.focus()
+          setTimeout(() => {
+            w.print()
+          }, 400)
+          return
+        }
+      }
+
+      const w = window.open('', '_blank', 'noopener,noreferrer')
+      if (!w) {
+        showNotification('Разрешите всплывающие окна для экспорта PDF', 'warning')
+        return
+      }
+      const title = 'Диаграмма'
+      w.document.open()
+      w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${title}</title>
+<style>
+  @page { size: auto; margin: 10mm; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  .wrap { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  img { max-width: 100%; max-height: 100vh; width: ${width}px; height: auto; }
+</style></head><body><div class="wrap"><img src="${imgSrc}" width="${width}" height="${height}" alt="${title}"/></div>
+<script>
+  const img = document.querySelector('img');
+  const go = () => { setTimeout(() => { window.focus(); window.print(); }, 200); };
+  if (img.complete) go(); else img.onload = go;
+</script></body></html>`)
+      w.document.close()
+    } catch (err) {
+      console.error('PDF export error:', err)
+      showNotification('Не удалось экспортировать PDF: ' + (err.message || err), 'error')
+    }
   }
 
   const handleRenderChart = async () => {
@@ -932,6 +1057,10 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         onSave={handleSaveAsNew}
       />
 
+      <div
+        className={`plot-area${isFullscreen ? ' plot-area--fullscreen' : ''}`}
+        ref={plotAreaRef}
+      >
       <div className="chart-zoom-bar">
         <span className="zoom-label">Масштаб</span>
         <button
@@ -968,6 +1097,25 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
           title="Сбросить масштаб"
         >
           100%
+        </button>
+        <span className="zoom-spacer" />
+        <button
+          type="button"
+          className="zoom-btn"
+          onClick={handleToggleFullscreen}
+          disabled={!chartHtml && !d3Payload}
+          title={isFullscreen ? "Выйти из полноэкранного режима" : "Полноэкранный режим"}
+        >
+          {isFullscreen ? "Выйти из полноэкранного" : "На весь экран"}
+        </button>
+        <button
+          type="button"
+          className="zoom-btn"
+          onClick={handleExportPdf}
+          disabled={!chartHtml && !d3Payload}
+          title="Экспорт в PDF (диалог печати → Сохранить как PDF)"
+        >
+          PDF
         </button>
       </div>
 
@@ -1044,6 +1192,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
           <p>Диаграмма будет отображена здесь после построения</p>
         </div>
       )}
+    </div>
     </div>
   )
 }
