@@ -3,7 +3,8 @@ import * as d3 from 'd3'
 
 const DEFAULT_FONT_SIZE = 16
 const LINE_HEIGHT = 1.15
-const TEXT_PADDING = 6
+// Keep inner paddings minimal (Plotly-like tight layout).
+const TEXT_PADDING = 2
 
 function D3Sunburst({ payload, onSizeChange }) {
   const containerRef = useRef(null)
@@ -156,7 +157,7 @@ function D3Sunburst({ payload, onSizeChange }) {
       .startAngle(d => d.x0)
       .endAngle(d => d.x1)
       // Plotly-like thin separators: reduce padding between slices.
-      .padAngle(d => Math.min((d.x1 - d.x0) / 2, 0.00025))
+      .padAngle(d => Math.min((d.x1 - d.x0) / 2, 0.0001))
       .padRadius(radius * 1.5)
       .innerRadius(d => d.y0)
       .outerRadius(d => Math.max(d.y0, d.y1 - 1))
@@ -248,8 +249,9 @@ function D3Sunburst({ payload, onSizeChange }) {
         return d.depth <= 1 ? base : blend(base, Math.min(0.55, 0.14 * (d.depth - 1)))
       })
       .attr('fill-opacity', d => (arcVisible(d.current) ? (d.children ? 0.65 : 0.45) : 0))
-      .attr('stroke', '#fff')
-      .attr('stroke-width', 0.35)
+      // User asked to remove the border/separators.
+      .attr('stroke', 'none')
+      .attr('stroke-width', 0)
       .attr('d', d => arc(d.current))
 
     path.append('title').text(d => d.ancestors().map(a => a.data?.name).reverse().join(' → '))
@@ -271,29 +273,33 @@ function D3Sunburst({ payload, onSizeChange }) {
       return `rotate(${x - 90}) translate(${y},0) rotate(${x < 180 ? 0 : 180})`
     }
 
-    const arcPathForLabel = (d, r, flip) => {
+    const arcPathForLabel = (d, r, reversePath) => {
       // Padding keeps text away from borders.
       const span = Math.max(0, d.x1 - d.x0)
-      const pad = Math.min(0.03, span * 0.12)
-      const x0 = d.x0 + pad
-      const x1 = d.x1 - pad
-
-      // Flip by BOTTOM half for textPath readability.
-      const a0 = flip ? x1 : x0
-      const a1 = flip ? x0 : x1
-
-      const steps = Math.max(16, Math.ceil(Math.abs(a1 - a0) / (Math.PI / 48)))
-      let pathD = ''
-      for (let i = 0; i <= steps; i++) {
-        const t = i / steps
-        const a = a0 + (a1 - a0) * t
-        // Match d3.arc's orientation: 0 at 12 o'clock.
-        const ang = a - Math.PI / 2
-        const px = Math.cos(ang) * r
-        const py = Math.sin(ang) * r
-        pathD += `${i === 0 ? 'M' : 'L'} ${px} ${py} `
+      // Keep this tiny, otherwise text appears "off-center" relative to the slice.
+      const pad = Math.min(0.002, span * 0.02)
+      let x0 = d.x0 + pad
+      let x1 = d.x1 - pad
+      if (!(x1 > x0)) {
+        // If the slice is too small, drop padding so the guide path is valid.
+        x0 = d.x0
+        x1 = d.x1
       }
-      return pathD.trim()
+
+      // Choose path direction so the text reads left-to-right on screen.
+      const a0 = reversePath ? x1 : x0
+      const a1 = reversePath ? x0 : x1
+      const da = a1 - a0
+      const largeArc = Math.abs(da) > Math.PI ? 1 : 0
+      const sweep = da >= 0 ? 1 : 0
+
+      // True circular arc: avoids textPath oddities on polylines.
+      const sx = Math.cos(a0) * r
+      const sy = Math.sin(a0) * r
+      const ex = Math.cos(a1) * r
+      const ey = Math.sin(a1) * r
+      const rr = Math.max(0.001, r)
+      return `M ${sx} ${sy} A ${rr} ${rr} 0 ${largeArc} ${sweep} ${ex} ${ey}`
     }
 
     const renderLabels = () => {
@@ -304,11 +310,14 @@ function D3Sunburst({ payload, onSizeChange }) {
         const lines = computeLines(node)
         if (!lines.length) return
 
-        if (!textAlongCircumference) {
-          // Plotly/Observable-style: text in sector centroid with rotation & flip.
+        const dCur = node.current
+
+        if (textAlongCircumference) {
+          // Plotly equivalent of insidetextorientation="tangential":
+          // single transform keeps text perfectly centered & readable.
           const t = labelG
             .append('text')
-            .attr('transform', labelTransform(node.current))
+            .attr('transform', labelTransform(dCur))
             .attr('fill', '#111')
             .style('paint-order', 'stroke')
             .style('stroke', '#fff')
@@ -326,38 +335,27 @@ function D3Sunburst({ payload, onSizeChange }) {
           return
         }
 
-        // Text along arc (curved): textPath. Keep upright, no upside-down.
-        const dCur = node.current
-        const mid = (dCur.x0 + dCur.x1) / 2
-        // Flip on the BOTTOM half (>= 180°) to avoid upside-down text.
-        // This matches Plotly/Observable logic (rotate 180 on bottom half).
-        const flip = mid >= Math.PI
-        const rMid = (dCur.y0 + dCur.y1) / 2
+        // Plotly equivalent of insidetextorientation="horizontal":
+        // place label at sector centroid, keep horizontal.
+        const [cx, cy] = arc.centroid(dCur)
+        const t = labelG
+          .append('text')
+          .attr('transform', `translate(${cx},${cy})`)
+          .attr('text-anchor', 'middle')
+          .attr('dominant-baseline', 'middle')
+          .attr('fill', '#111')
+          .style('paint-order', 'stroke')
+          .style('stroke', '#fff')
+          .style('stroke-width', 3)
+          .style('stroke-linejoin', 'round')
 
         const lineDy = fontSize * LINE_HEIGHT
+        const startDy = -((lines.length - 1) / 2) * lineDy
         lines.forEach((l, i) => {
-          const offset = (((lines.length - 1) / 2) - i) * lineDy
-          const r = Math.max(0, rMid + offset)
-          const id = `lbl-${node._idx}-${i}`
-          defs.append('path').attr('id', id).attr('d', arcPathForLabel(dCur, r, flip))
-
-          const textEl = labelG
-            .append('text')
-            .attr('text-anchor', 'middle')
-            .attr('dominant-baseline', 'middle')
-            .attr('fill', '#111')
-            .style('paint-order', 'stroke')
-            .style('stroke', '#fff')
-            .style('stroke-width', 3)
-            .style('stroke-linejoin', 'round')
-
-          textEl
-            .append('textPath')
-            .attr('href', `#${id}`)
-            .attr('xlink:href', `#${id}`)
-            .attr('startOffset', '50%')
-            .style('text-anchor', 'middle')
-            .text(flip ? reverseGraphemes(l) : l)
+          t.append('tspan')
+            .attr('x', 0)
+            .attr('dy', i === 0 ? startDy : lineDy)
+            .text(l)
         })
       })
     }
