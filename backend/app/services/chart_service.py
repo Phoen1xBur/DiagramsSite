@@ -39,6 +39,7 @@ def create_sunburst_chart(
     show_full_text: bool = False,
     dynamic_font_size: bool = False,
     column_mapping: Optional[Dict[str, str]] = None,
+    color_map: Optional[Dict[str, str]] = None,
 ) -> tuple:
     """Создает sunburst диаграмму. Возвращает (html, chart_size). column_mapping: canonical_name -> actual_name в данных."""
     try:
@@ -536,7 +537,12 @@ def create_sunburst_chart(
 
                 # Уникальные цвета для всех узлов первого уровня (depth == 1)
                 level_one_nodes = [node_id for node_id in original_ids_for_colors if get_depth_c(node_id) == 1]
-                root_color_map = {node_id: palette[i % len(palette)] for i, node_id in enumerate(level_one_nodes)}
+                # Prefer manual L1 overrides (by sector label); fall back to palette.
+                overrides = color_map or {}
+                root_color_map = {}
+                for i, node_id in enumerate(level_one_nodes):
+                    label = str(original_labels_for_colors[id_to_index_c[node_id]])
+                    root_color_map[node_id] = overrides.get(label, palette[i % len(palette)])
                 node_colors = [None] * len(original_ids_for_colors)
 
                 def assign_color(node_id):
@@ -619,6 +625,7 @@ def build_d3_payload(
     show_full_text: bool = False,
     dynamic_font_size: bool = False,
     column_mapping: Optional[Dict[str, str]] = None,
+    color_map: Optional[Dict[str, str]] = None,
 ) -> Dict:
     """Готовит данные для D3 sunburst (дерево + настройки)."""
     if not data:
@@ -732,6 +739,8 @@ def build_d3_payload(
         "useGradient": use_gradient,
         "uniformSize": uniform_size,
         "palette": palette,
+        # L1 sector name -> hex; D3 applies and lightens by depth when useGradient.
+        "colorMap": color_map or {},
         # Use the same diameter as Plotly for visual parity.
         "baseSize": chart_size,
         "maxSize": 5000,

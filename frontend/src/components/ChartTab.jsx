@@ -1,9 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import apiClient from '../api/client'
 import { useNotification } from '../contexts/NotificationContext'
 import SaveAsNewModal from './SaveAsNewModal'
 import D3Sunburst from './D3Sunburst'
 import './ChartTab.css'
+
+const DEFAULT_SECTOR_PALETTE = [
+  '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
+  '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
+  '#17becf', '#2e91e5', '#e15f99', '#1ca71c',
+  '#fb0d0d', '#da16ff', '#b68100'
+]
 
 function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, openedDiagramId, fileName }) {
   const { showNotification } = useNotification()
@@ -11,6 +18,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   const [columnOrder, setColumnOrder] = useState([]) // Порядок всех столбцов
   const [valueColumn, setValueColumn] = useState('')
   const [useGradient, setUseGradient] = useState(true)
+  const [colorMap, setColorMap] = useState({})
   const [uniformSize, setUniformSize] = useState(false)
   const [showZeroValues, setShowZeroValues] = useState(true)
   const [textAlongCircumference, setTextAlongCircumference] = useState(false)
@@ -66,6 +74,9 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
             setValueColumn('')
           }
           setUseGradient(chartData.useGradient !== undefined ? chartData.useGradient : true)
+          if (chartData.colorMap && typeof chartData.colorMap === 'object') {
+            setColorMap(chartData.colorMap)
+          }
           setUniformSize(chartData.uniformSize || false)
           setShowZeroValues(chartData.showZeroValues !== undefined ? chartData.showZeroValues : true)
           setTextAlongCircumference(chartData.textAlongCircumference || false)
@@ -96,6 +107,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
           valueColumn,
           valueColumnIndex: valueColumnIndex >= 0 ? valueColumnIndex : undefined,
           useGradient,
+          colorMap,
           uniformSize,
           showZeroValues,
           textAlongCircumference,
@@ -106,10 +118,56 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         console.warn('Не удалось сохранить настройки диаграммы в localStorage:', e)
       }
     }
-  }, [selectedColumns, valueColumn, useGradient, uniformSize, showZeroValues, textAlongCircumference, showFullText, dynamicFontSize, fileId, columns])
+  }, [selectedColumns, valueColumn, useGradient, colorMap, uniformSize, showZeroValues, textAlongCircumference, showFullText, dynamicFontSize, fileId, columns])
 
   // Загружаем настройки сохраненной диаграммы при открытии (только если диаграмма привязана к текущему файлу)
   // Подставляем только те столбцы, которые есть в текущем файле (по имени)
+  // Unique L1 sector names from first hierarchy column (table order).
+  const l1Sectors = useMemo(() => {
+    if (!data?.length || !selectedColumns?.length) return []
+    const col = selectedColumns[0]
+    const seen = new Set()
+    const names = []
+    for (const row of data) {
+      const raw = row?.[col]
+      if (raw == null || raw === '') continue
+      const name = String(raw)
+      if (!seen.has(name)) {
+        seen.add(name)
+        names.push(name)
+      }
+    }
+    return names
+  }, [data, selectedColumns])
+
+  // Ensure every L1 sector has a color (defaults from palette).
+  useEffect(() => {
+    if (!l1Sectors.length) return
+    setColorMap(prev => {
+      let changed = false
+      const next = { ...prev }
+      l1Sectors.forEach((name, i) => {
+        if (!next[name]) {
+          next[name] = DEFAULT_SECTOR_PALETTE[i % DEFAULT_SECTOR_PALETTE.length]
+          changed = true
+        }
+      })
+      return changed ? next : prev
+    })
+  }, [l1Sectors])
+
+  const handleSectorColorChange = (name, hex) => {
+    setColorMap(prev => ({ ...prev, [name]: hex }))
+  }
+
+  const handleResetSectorColors = () => {
+    const next = {}
+    l1Sectors.forEach((name, i) => {
+      next[name] = DEFAULT_SECTOR_PALETTE[i % DEFAULT_SECTOR_PALETTE.length]
+    })
+    setColorMap(next)
+  }
+
   useEffect(() => {
     if (openedDiagramId && fileId && columns && columns.length > 0) {
       const loadDiagramSettings = async () => {
@@ -529,7 +587,8 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         show_zero_values: showZeroValues,
         text_along_circumference: textAlongCircumference,
         show_full_text: showFullText,
-        dynamic_font_size: dynamicFontSize
+        dynamic_font_size: dynamicFontSize,
+        color_map: colorMap
       })
 
       if (response.data && response.data.html) {
@@ -602,7 +661,8 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         show_zero_values: showZeroValues,
         text_along_circumference: textAlongCircumference,
         show_full_text: showFullText,
-        dynamic_font_size: dynamicFontSize
+        dynamic_font_size: dynamicFontSize,
+        color_map: colorMap
       })
 
       if (response.data && response.data.tree) {
@@ -931,27 +991,65 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
           </label>
           <br />
           <br />
-          <label style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <label style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}>
             <input
               type="checkbox"
               checked={useGradient}
               onChange={(e) => setUseGradient(e.target.checked)}
-              disabled={!valueColumn}
             />
-            <span style={{ opacity: !valueColumn ? 0.5 : 1 }}>
-              Использовать градиент (внешние сектора ярче) {!valueColumn && '*'}
+            <span>
+              Градиент по глубине (осветлять вложенные сектора)
             </span>
-            {!valueColumn && (
+            <span 
+              style={{ cursor: 'help', color: '#666', fontSize: '14px' }}
+              title="При включении дочерние сектора осветляются относительно выбранного цвета сектора 1-го уровня"
+            >
+              ℹ️
+            </span>
+          </label>
+          <br />
+          <div className="sector-colors">
+            <div className="sector-colors-header">
+              <strong>Цвета секторов (1-й уровень)</strong>
               <span 
                 style={{ cursor: 'help', color: '#666', fontSize: '14px' }}
-                title="Требуется выбрать столбец значений для работы градиента"
+                title="Выберите цвет для каждого сектора первого уровня иерархии. При градиенте вложенные уровни осветляются от выбранного цвета."
               >
                 ℹ️
               </span>
+              {l1Sectors.length > 0 && (
+                <button
+                  type="button"
+                  className="sector-colors-reset"
+                  onClick={handleResetSectorColors}
+                  title="Сбросить к палитре по умолчанию"
+                >
+                  Сбросить
+                </button>
+              )}
+            </div>
+            {l1Sectors.length === 0 ? (
+              <div className="sector-colors-empty">
+                Выберите столбцы иерархии — появятся сектора 1-го уровня
+              </div>
+            ) : (
+              <div className="sector-colors-list">
+                {l1Sectors.map(name => (
+                  <label key={name} className="sector-color-row">
+                    <input
+                      type="color"
+                      value={colorMap[name] || '#1f77b4'}
+                      onChange={(e) => handleSectorColorChange(name, e.target.value)}
+                      title={name}
+                    />
+                    <span className="sector-color-name" title={name}>{name}</span>
+                  </label>
+                ))}
+              </div>
             )}
-          </label>
+          </div>
           <br />
-          <label style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}>
+<label style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}>
             <input
               type="checkbox"
               checked={textAlongCircumference}
@@ -1009,7 +1107,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
               fontStyle: 'italic',
               paddingLeft: '25px'
             }}>
-              * Опции с градиентом требуют выбора столбца значений
+              * Равномерное распределение секторов требует выбора столбца значений
             </div>
           )}
         </div>

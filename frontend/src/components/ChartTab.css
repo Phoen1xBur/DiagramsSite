@@ -405,3 +405,89 @@
   height: calc(100vh - 32px);
   box-shadow: none;
 }
+
+
+/* Manual L1 sector color pickers */
+.sector-colors {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+}
+
+.sector-colors-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.sector-colors-header strong {
+  color: #212529;
+  font-size: 14px;
+}
+
+.sector-colors-reset {
+  margin-left: auto;
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid #bdbdbd;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #333;
+}
+
+.sector-colors-reset:hover {
+  border-color: #4CAF50;
+  color: #2e7d32;
+}
+
+.sector-colors-empty {
+  font-size: 12px;
+  color: #888;
+  font-style: italic;
+}
+
+.sector-colors-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.sector-color-row {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  margin: 0 !important;
+  padding: 4px 6px !important;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.sector-color-row:hover {
+  background: #eef7ee;
+}
+
+.sector-color-row input[type="color"] {
+  width: 36px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+  background: transparent;
+  flex-shrink: 0;
+}
+
+.sector-color-name {
+  font-size: 13px;
+  color: #212529;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

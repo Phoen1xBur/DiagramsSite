@@ -65,6 +65,8 @@ class ChartRequest(BaseModel):
     text_along_circumference: bool = False
     show_full_text: bool = False
     dynamic_font_size: bool = False
+    # L1 sector name -> hex color overrides (session/API; not a DB column)
+    color_map: Optional[Dict[str, str]] = None
     # canonical_name -> actual_name в данных; для совместимости диаграмм при переименовании столбцов
     column_mapping: Optional[Dict[str, str]] = None
 

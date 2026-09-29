@@ -23,6 +23,7 @@ function D3Sunburst({ payload, onSizeChange }) {
     const showFullText = Boolean(settings?.showFullText)
     const textAlongCircumference = Boolean(settings?.textAlongCircumference)
     const useGradient = settings?.useGradient !== false
+    const colorMap = settings?.colorMap || {}
 
     const diameter = Math.min(maxSize, baseSize)
     const radius = diameter / 2
@@ -249,7 +250,7 @@ function D3Sunburst({ payload, onSizeChange }) {
       .attr('fill', d => {
         let a = d
         while (a.depth > 1) a = a.parent
-        const base = color(a.data.name)
+        const base = colorMap[a.data.name] || color(a.data.name)
         if (!useGradient || d.depth <= 1) return base
         return blend(base, Math.min(0.55, 0.14 * (d.depth - 1)))
       })
