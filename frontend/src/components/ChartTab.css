@@ -491,3 +491,31 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+
+/* D3 sunburst hover tooltip — wrap long paths */
+.d3-sunburst-tooltip {
+  position: fixed;
+  z-index: 10000;
+  max-width: 280px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.97);
+  color: #111;
+  border: 1px solid #333;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.d3-sunburst-error {
+  color: #c62828;
+  padding: 16px;
+  text-align: center;
+  font-family: Arial, sans-serif;
+}

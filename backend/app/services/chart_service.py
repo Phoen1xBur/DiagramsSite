@@ -1,4 +1,5 @@
 import math
+import re
 import pandas as pd
 import plotly.express as px
 import logging
@@ -26,6 +27,131 @@ def _get_color_category(pct: float) -> str:
         return 'level_75'
     else:
         return 'level_100'
+
+
+def _is_blank_hierarchy_value(val) -> bool:
+    """True for empty / missing hierarchy cells (do not turn these into N/A nodes)."""
+    if val is None:
+        return True
+    try:
+        if isinstance(val, float) and math.isnan(val):
+            return True
+    except Exception:
+        pass
+    try:
+        if pd.isna(val):
+            return True
+    except Exception:
+        pass
+    s = str(val).strip().lower()
+    return s in ("", "nan", "none", "nat", "n/a", "na", "<na>")
+
+
+def _clean_hierarchy_cell(val):
+    """Return stripped label or None when the cell should terminate the branch."""
+    if _is_blank_hierarchy_value(val):
+        return None
+    return str(val).strip()
+
+
+
+def _truncate_hierarchy_paths(df, hierarchy_cols):
+    """Blank cells end the branch: null that cell and every deeper level.
+
+    Plotly rejects a None parent that still has a non-None child, so a gap
+    in the middle of a row must wipe the tail rather than become an N/A node.
+    """
+    cols = [c for c in (hierarchy_cols or []) if c in df.columns]
+    if not cols or df.empty:
+        return df
+
+    def _fix(row):
+        seen_blank = False
+        for col in cols:
+            if seen_blank or _clean_hierarchy_cell(row[col]) is None:
+                row[col] = None
+                seen_blank = True
+            else:
+                row[col] = _clean_hierarchy_cell(row[col])
+        return row
+
+    df = df.copy()
+    df[cols] = df[cols].apply(_fix, axis=1)
+    df = df[df[cols[0]].notna()]
+    return df
+
+
+
+def _drop_non_leaf_hierarchy_rows(df, hierarchy_cols):
+    """Plotly requires every sunburst row to be a leaf.
+
+    A blank deeper cell makes that row a prefix of any sibling that continues,
+    which Plotly rejects. Drop those prefix rows so the branch simply ends
+    instead of inserting an N/A child. Rows that truly stop (no deeper sibling)
+    are kept and render as shorter branches.
+    """
+    cols = [c for c in (hierarchy_cols or []) if c in getattr(df, "columns", [])]
+    if not cols or df is None or df.empty:
+        return df
+
+    def _key(row):
+        parts = []
+        for col in cols:
+            val = row[col]
+            if _is_blank_hierarchy_value(val):
+                parts.append("")
+            else:
+                parts.append(str(val))
+        return "".join(parts)
+
+    keys = [_key(row) for _, row in df.iterrows()]
+    keep_index = []
+    for idx, key in zip(df.index, keys):
+        is_prefix = any(
+            other != key and other.startswith(key) and len(other) > len(key)
+            for other in keys
+        )
+        if not is_prefix:
+            keep_index.append(idx)
+    if not keep_index:
+        return df.iloc[0:0]
+    return df.loc[keep_index].copy()
+
+
+def _wrap_hover_text(text, max_chars=48) -> str:
+    """Insert <br> so Plotly/D3 hover tooltips wrap instead of one endless line."""
+    s = str(text or "").strip()
+    if not s:
+        return s
+    # Keep existing breaks; wrap long segments.
+    parts = re.split(r"(<br\s*/?>)", s, flags=re.IGNORECASE)
+    out = []
+    for part in parts:
+        if re.match(r"<br\s*/?>", part or "", flags=re.IGNORECASE):
+            out.append("<br>")
+            continue
+        words = part.split()
+        if not words:
+            out.append(part)
+            continue
+        line = ""
+        for w in words:
+            trial = f"{line} {w}".strip()
+            if len(trial) <= max_chars:
+                line = trial
+            else:
+                if line:
+                    out.append(line)
+                if len(w) > max_chars:
+                    for i in range(0, len(w), max_chars):
+                        out.append(w[i:i + max_chars])
+                    line = ""
+                else:
+                    line = w
+        if line:
+            out.append(line)
+    return "<br>".join(out)
+
 
 def create_sunburst_chart(
     data: List[Dict],
@@ -75,12 +201,8 @@ def create_sunburst_chart(
                 800,
             )
 
-        # Обработка иерархических столбцов
-        for col in hierarchy_cols:
-            if col in df.columns:
-                df[col] = df[col].astype(str).replace(['nan', 'None', 'NaN'], '').fillna("")
-                # Заполняем пустые значения, чтобы не было частичных путей
-                df[col] = df[col].replace('', 'N/A')
+        # Clean hierarchy cells: blank/NaN terminate the branch (no synthetic N/A sectors).
+        df = _truncate_hierarchy_paths(df, hierarchy_cols)
         
         # Обработка столбца значений
         use_value_col = None
@@ -110,8 +232,11 @@ def create_sunburst_chart(
             for _, row in df_for_weights.iterrows():
                 path = []
                 for level in range(len(hierarchy_cols)):
+                    raw = row[hierarchy_cols[level]]
+                    child = _clean_hierarchy_cell(raw)
+                    if child is None:
+                        break
                     parent_key = tuple(path)
-                    child = str(row[hierarchy_cols[level]])
                     children_map.setdefault(parent_key, set()).add(child)
                     path.append(child)
 
@@ -119,10 +244,14 @@ def create_sunburst_chart(
                 weight = 1.0
                 path = []
                 for level in range(len(hierarchy_cols)):
+                    raw = row[hierarchy_cols[level]]
+                    child = _clean_hierarchy_cell(raw)
+                    if child is None:
+                        break
                     parent_key = tuple(path)
                     child_count = len(children_map.get(parent_key, [])) or 1
                     weight *= 1.0 / child_count
-                    path.append(str(row[hierarchy_cols[level]]))
+                    path.append(child)
                 return weight
 
             df_for_weights['_uniform_weight'] = df_for_weights.apply(compute_weight, axis=1)
@@ -150,6 +279,10 @@ def create_sunburst_chart(
         branchvalues_mode = 'total'
 
         # Создание диаграммы
+        df = _drop_non_leaf_hierarchy_rows(df, hierarchy_cols)
+        if df.empty:
+            return "<p style='color:red'>No data to display.</p>", 800
+
         fig = px.sunburst(
             df,
             path=hierarchy_cols,
@@ -238,7 +371,7 @@ def create_sunburst_chart(
         
         # Текст занимает 98% ширины лепестка (по 1% отступ с каждой стороны)
         # Plotly сам добавит небольшие отступы при рендеринге
-        TEXT_FILL_RATIO = 0.98
+        TEXT_FILL_RATIO = 0.85  # leave margin so labels sit nearer slice center
         
         text_font_size = FONT_SIZE_BASE
         char_px = text_font_size * CHAR_WIDTH_RATIO  # Ширина одного символа в пикселях
@@ -348,8 +481,9 @@ def create_sunburst_chart(
                 
                 if parent == '' or parent is None:
                     # Корневой узел (центр) - диаметр центра примерно = ring_thickness
-                    center_width = ring_thickness * TEXT_FILL_RATIO
-                    max_chars = max(15, int(center_width / char_px))
+                    # Keep center title balanced (e.g. long Russian root labels).
+                    center_width = ring_thickness * 1.6 * TEXT_FILL_RATIO
+                    max_chars = max(10, min(22, int(center_width / char_px)))
                     depth = 0
                 else:
                     # Рассчитываем длину дуги для этого сектора
@@ -395,46 +529,33 @@ def create_sunburst_chart(
         # Массив размеров шрифта для каждого сектора (динамический размер)
         font_sizes = []
         
+        # Always keep labels readable: truncate/ellipsis when text cannot fit the sector.
+        # "show_full_text" only allows a bit more room / more lines — never unlimited overflow.
+        min_line_height = FONT_SIZE_MIN * LINE_HEIGHT_RATIO
         if show_full_text:
-            # Режим "Отображать весь текст" - увеличиваем диаграмму чтобы текст влез
-            # Максимальный размер диаграммы в этом режиме
-            MAX_FULL_TEXT_SIZE = 3000
-            
-            # Находим максимальное количество строк на любом уровне
+            MAX_FULL_TEXT_SIZE = 2200
             max_lines_any_level = max(max_lines_per_level.values()) if max_lines_per_level else 1
-            
-            # Рассчитываем нужную толщину кольца
             line_height_px = text_font_size * LINE_HEIGHT_RATIO
-            needed_thickness = max_lines_any_level * line_height_px + RING_PADDING * 2
-            
-            # Рассчитываем нужный размер диаграммы
+            # Cap how many lines we try to honor so one long label cannot explode the chart.
+            capped_lines = min(max_lines_any_level, 4)
+            needed_thickness = capped_lines * line_height_px + RING_PADDING * 2
             needed_chart_size = int(needed_thickness * (levels_count + 1) * 2 + 40)
-            
-            # Ограничиваем максимальный размер
-            chart_size = min(needed_chart_size, MAX_FULL_TEXT_SIZE)
+            chart_size = min(max(chart_size, needed_chart_size), MAX_FULL_TEXT_SIZE)
             ring_thickness = chart_size / 2 / (levels_count + 1)
-            
-            # Если текст всё ещё не влезает - уменьшаем шрифт
             available_height = ring_thickness - RING_PADDING * 2
-            if max_lines_any_level * line_height_px > available_height:
-                # Рассчитываем нужный размер шрифта чтобы текст влез
-                needed_line_height = available_height / max_lines_any_level
+            if capped_lines * line_height_px > available_height > 0:
+                needed_line_height = available_height / capped_lines
                 text_font_size = max(FONT_SIZE_MIN, int(needed_line_height / LINE_HEIGHT_RATIO))
+            max_lines_fit = max(2, min(4, int((ring_thickness - RING_PADDING * 2) / min_line_height)))
         else:
-            # Обычный режим - обрезаем текст который не влезает
-            # Высота строки при минимальном шрифте (Plotly может уменьшить до этого размера)
-            min_line_height = FONT_SIZE_MIN * LINE_HEIGHT_RATIO
-            
-            # Сколько строк максимум влезает в кольцо при минимальном шрифте
             max_lines_fit = int((ring_thickness - RING_PADDING * 2) / min_line_height)
-            max_lines_fit = max(2, max_lines_fit)  # Минимум 2 строки
-            
-            # Обрезаем текст который не влезает
-            if wrapped_labels:
-                for idx in range(len(wrapped_labels)):
-                    lines = count_lines(wrapped_labels[idx])
-                    if lines > max_lines_fit:
-                        wrapped_labels[idx] = truncate_text(wrapped_labels[idx], max_lines_fit)
+            max_lines_fit = max(2, max_lines_fit)
+
+        if wrapped_labels:
+            for idx in range(len(wrapped_labels)):
+                lines = count_lines(wrapped_labels[idx])
+                if lines > max_lines_fit:
+                    wrapped_labels[idx] = truncate_text(wrapped_labels[idx], max_lines_fit)
 
         # === ШАГ 4: Рассчитываем динамический размер шрифта для каждого сектора ===
         if dynamic_font_size:
@@ -476,9 +597,20 @@ def create_sunburst_chart(
         if not font_sizes:
             font_sizes = None
 
+        # Wrap long hover labels so tooltip is not one endless line.
+        if raw_labels:
+            raw_labels = [_wrap_hover_text(lbl, max_chars=42) for lbl in raw_labels]
+
         fig.update_layout(
             hovermode='closest',
-            hoverlabel=dict(bgcolor="white", font_size=12, font_family="Arial", namelength=-1, bordercolor="black"),
+            hoverlabel=dict(
+                bgcolor="white",
+                font_size=12,
+                font_family="Arial",
+                namelength=-1,
+                bordercolor="black",
+                align="left",
+            ),
             margin=dict(t=20, l=20, r=20, b=20),
             font=dict(family="Arial, sans-serif", size=text_font_size),
             paper_bgcolor='white',
@@ -596,15 +728,26 @@ def create_sunburst_chart(
         # Если используем динамические размеры - не применяем uniformtext 
         # (он нормализует все размеры и конфликтует с массивом font_sizes)
         if not font_sizes:
-            # Только для фиксированного размера: Plotly уменьшит шрифт где нужно
+            # Hide labels that still cannot fit — avoids bleeding into neighbor sectors.
+            # Full text remains available via hovertext.
             fig.update_layout(
                 font=dict(family="Arial, sans-serif", size=text_font_size),
-                uniformtext=dict(mode="show", minsize=FONT_SIZE_MIN),
+                uniformtext=dict(mode="hide", minsize=FONT_SIZE_MIN),
             )
         
         html = fig.to_html(include_plotlyjs="inline", full_html=True)
-        # Вставляем размер в HTML, чтобы фронт и сохранённые диаграммы знали реальный размер
-        html = html.replace("</head>", f'<meta name="plotly-chart-size" content="{chart_size},{chart_size}"></head>')
+        hover_css = (
+            "<style>"
+            ".hovertext, .hoverlayer path + text, g.hovertext text {"
+            "white-space: normal !important;}"
+            ".hovertext {"
+            "max-width: 280px;}"
+            "</style>"
+        )
+        html = html.replace(
+            "</head>",
+            f'{hover_css}<meta name="plotly-chart-size" content="{chart_size},{chart_size}"></head>',
+        )
         logger.info(f"HTML графика сгенерирован, длина: {len(html)} символов, размер: {chart_size}")
         return html, chart_size
 
@@ -637,6 +780,11 @@ def build_d3_payload(
         if rename:
             df = df.rename(columns=rename)
 
+    # Terminate blank hierarchy cells early (parity with Plotly path cleaning).
+    df = _truncate_hierarchy_paths(df, hierarchy_cols)
+    # Drop prefix rows that would only duplicate a parent that already has children.
+    df = _drop_non_leaf_hierarchy_rows(df, hierarchy_cols)
+
     use_value_col = None
     if value_col and value_col in df.columns:
         df[value_col] = pd.to_numeric(df[value_col], errors="coerce").fillna(0)
@@ -651,8 +799,11 @@ def build_d3_payload(
         for _, row in df_for_weights.iterrows():
             path = []
             for level in range(len(hierarchy_cols)):
+                raw = row[hierarchy_cols[level]]
+                child = _clean_hierarchy_cell(raw)
+                if child is None:
+                    break
                 parent_key = tuple(path)
-                child = str(row[hierarchy_cols[level]])
                 children_map.setdefault(parent_key, set()).add(child)
                 path.append(child)
 
@@ -660,10 +811,14 @@ def build_d3_payload(
             weight = 1.0
             path = []
             for level in range(len(hierarchy_cols)):
+                raw = row[hierarchy_cols[level]]
+                child = _clean_hierarchy_cell(raw)
+                if child is None:
+                    break
                 parent_key = tuple(path)
                 child_count = len(children_map.get(parent_key, [])) or 1
                 weight *= 1.0 / child_count
-                path.append(str(row[hierarchy_cols[level]]))
+                path.append(child)
             return weight
 
         df_for_weights["_uniform_weight"] = df_for_weights.apply(compute_weight, axis=1)
@@ -675,6 +830,7 @@ def build_d3_payload(
 
     # Children are appended in first-seen order while iterating df rows,
     # so sibling order matches the table (no value-based reordering).
+    # Blank hierarchy cells terminate the path (no synthetic N/A nodes).
     root = {"name": "root", "children": [], "value": 0}
 
     def get_or_create_child(node, name):
@@ -688,19 +844,30 @@ def build_d3_payload(
 
     for _, row in df.iterrows():
         node = root
+        descended = False
         for col in hierarchy_cols:
-            node = get_or_create_child(node, str(row[col]))
+            label = _clean_hierarchy_cell(row[col])
+            if label is None:
+                break
+            node = get_or_create_child(node, label)
+            descended = True
+        if not descended:
+            continue
         leaf_value = float(row[use_value_col]) if use_value_col else 1.0
         node["value"] = (node.get("value") or 0) + leaf_value
 
     def finalize(node):
-        if node.get("children"):
+        children = node.get("children") or []
+        if children:
             total = 0
-            for child in node["children"]:
+            for child in children:
                 finalize(child)
-                total += child.get("value", 0)
+                total += child.get("value", 0) or 0
             if not node.get("value"):
                 node["value"] = total
+        # Drop empty children lists so D3 treats node as a leaf.
+        if not node.get("children"):
+            node.pop("children", None)
         node.pop("_children_map", None)
 
     finalize(root)

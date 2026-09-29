@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import apiClient from '../api/client'
 import { useNotification } from '../contexts/NotificationContext'
 import SaveAsNewModal from './SaveAsNewModal'
@@ -37,6 +37,13 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   const [zoomPercent, setZoomPercent] = useState(100)
   const [contentSize, setContentSize] = useState({ width: 0, height: 0 })
   const chartContainerRef = useRef(null)
+
+  const handleD3SizeChange = useCallback((size) => {
+    if (!size) return
+    setContentSize(prev => (prev.width === size && prev.height === size)
+      ? prev
+      : { width: size, height: size })
+  }, [])
   const plotAreaRef = useRef(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const columnsContainerRef = useRef(null)
@@ -764,8 +771,13 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
     }
   }
 
-  // Рендерим диаграмму через iframe
+  // Render Plotly chart via iframe. Do not reset contentSize when chartHtml
+  // is cleared — D3 mode owns sizing via onSizeChange.
   useEffect(() => {
+    if (!chartHtml) {
+      if (chartContainerRef.current) chartContainerRef.current.innerHTML = ''
+      return
+    }
     if (!chartContainerRef.current) return
 
     chartContainerRef.current.innerHTML = ''
@@ -1274,11 +1286,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
             >
               <D3Sunburst
                 payload={d3Payload}
-                onSizeChange={(size) => {
-                  if (size && size !== contentSize.width) {
-                    setContentSize({ width: size, height: size })
-                  }
-                }}
+                onSizeChange={handleD3SizeChange}
               />
             </div>
           </div>
