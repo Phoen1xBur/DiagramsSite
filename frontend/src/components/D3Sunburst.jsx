@@ -110,7 +110,13 @@ function D3Sunburst({ payload, onSizeChange }) {
         const d = node.current
         const midR = (d.y0 + d.y1) / 2
         const arcLen = (d.x1 - d.x0) * midR
-        const maxWidth = Math.max(0, arcLen - TEXT_PADDING * 2)
+        const ringPx = Math.max(1, d.y1 - d.y0)
+        // Cap width by both arc length and ring thickness so horizontal labels
+        // on side sectors cannot spill into neighboring rings (PDF captures it).
+        const maxWidth = Math.max(
+          0,
+          Math.min(arcLen, ringPx * (textAlongCircumference ? 2.2 : 1.35)) - TEXT_PADDING * 2
+        )
         const words = String(node.data?.name || '').split(/\s+/).filter(Boolean)
         if (!words.length) return []
         const lines = []
@@ -127,7 +133,6 @@ function D3Sunburst({ payload, onSizeChange }) {
 
         // Even with showFullText, never paint text that cannot fit the sector —
         // full label stays available in the tooltip.
-        const ringPx = Math.max(1, d.y1 - d.y0)
         const hardMaxLines = showFullText
           ? Math.max(2, Math.min(4, Math.floor((ringPx - TEXT_PADDING * 2) / (fontSize * LINE_HEIGHT))))
           : Math.max(1, Math.floor((ringPx - TEXT_PADDING * 2) / (fontSize * LINE_HEIGHT)))
@@ -332,26 +337,30 @@ function D3Sunburst({ payload, onSizeChange }) {
           if (!lines.length) return
 
           const dCur = node.current
+          // Clip on a <g> (more reliable than clip-path on <text>/tspan).
+          const clipped = labelG
+            .append('g')
+            .attr('clip-path', `url(#d3-clip-${node._idx})`)
+
           let t
           if (textAlongCircumference) {
-            t = labelG
+            t = clipped
               .append('text')
               .attr('transform', labelTransformTangential(dCur))
               .attr('dominant-baseline', 'middle')
           } else {
             const [cx, cy] = labelAtMid(dCur)
-            t = labelG
+            t = clipped
               .append('text')
               .attr('transform', `translate(${cx},${cy})`)
               .attr('dominant-baseline', 'middle')
-              .attr('clip-path', `url(#d3-clip-${node._idx})`)
           }
 
           t.attr('text-anchor', 'middle')
             .attr('fill', '#111')
             .style('paint-order', 'stroke')
             .style('stroke', '#fff')
-            .style('stroke-width', 3)
+            .style('stroke-width', 2)
             .style('stroke-linejoin', 'round')
 
           const lineDy = fontSize * LINE_HEIGHT

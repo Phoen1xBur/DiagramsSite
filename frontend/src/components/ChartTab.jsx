@@ -464,10 +464,24 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
     if (d3Svg) return { kind: 'svg', el: d3Svg }
     const iframe = chartContainerRef.current?.querySelector('iframe')
     if (iframe?.contentDocument?.body) {
+      const hasSvg = Boolean(iframe.contentDocument.querySelector('svg'))
+      if (!hasSvg) return null
       return { kind: 'iframe', el: iframe }
     }
     return null
   }
+
+  const chartLooksLikeError = Boolean(
+    error ||
+    (typeof chartHtml === 'string' && (
+      chartHtml.includes('Chart error') ||
+      chartHtml.includes("color:red") ||
+      chartHtml.includes("color: red") ||
+      chartHtml.includes('Non-leaves rows')
+    ))
+  )
+  const canExportPdf = Boolean(d3Payload || (chartHtml && !chartLooksLikeError))
+
 
   const svgToDataUrl = (svgEl) => {
     const clone = svgEl.cloneNode(true)
@@ -584,6 +598,10 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   }
 
   const handleExportPdf = async () => {
+    if (!canExportPdf) {
+      showNotification('PDF unavailable: no chart SVG', 'warning')
+      return
+    }
     const target = getChartCaptureTarget()
     if (!target) {
       showNotification('Сначала постройте диаграмму', 'warning')
@@ -1323,8 +1341,8 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
           type="button"
           className="zoom-btn"
           onClick={handleExportPdf}
-          disabled={!chartHtml && !d3Payload}
-          title="Скачать диаграмму в PDF"
+          disabled={!canExportPdf}
+          title={canExportPdf ? "Export chart to PDF" : "PDF unavailable (no chart SVG)"}
         >
           PDF
         </button>

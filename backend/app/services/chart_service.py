@@ -54,67 +54,119 @@ def _clean_hierarchy_cell(val):
     return str(val).strip()
 
 
+# Visible only when an intermediate hierarchy column is blank but a deeper
+# column still has a value. Preserves ring depth without an N/A flood on
+# terminal blanks. Plotly forbids empty-string parents with non-empty children.
+HIERARCHY_GAP_PLACEHOLDER = "\u2014"  # em dash
+
 
 def _truncate_hierarchy_paths(df, hierarchy_cols):
-    """Blank cells end the branch: null that cell and every deeper level.
+    """Normalize hierarchy cells for sunburst paths.
 
-    Prefer terminating at the first blank over collapsing deeper values into
-    shallower rings (e.g. a blank mid-level must not place deeper labels on
-    that ring). Plotly also rejects a None parent that still has a non-None child.
+    Rules:
+    - Trim whitespace/tabs on every cell.
+    - Terminal blanks (nothing filled after): null that cell and every deeper
+      level (no synthetic N/A leaves).
+    - Mid-gap blanks (a later hierarchy column is filled): keep depth by
+      inserting HIERARCHY_GAP_PLACEHOLDER so later values are not wiped and do
+      not collapse onto a shallower ring. Column order may put e.g. Задачи
+      before Ценности Направления; blank Задачи must not erase a filled
+      Ценности Направления.
     """
     cols = [c for c in (hierarchy_cols or []) if c in getattr(df, "columns", [])]
     if not cols or df is None or getattr(df, "empty", True):
         return df
 
     df = df.copy()
-    # Explicit row/column loop - avoid DataFrame.apply mutation edge cases that
-    # could leave a deeper value after a blank mid-level cell.
     for idx in list(df.index):
-        seen_blank = False
-        for col in cols:
-            raw = df.at[idx, col]
-            cleaned = None if seen_blank else _clean_hierarchy_cell(raw)
-            if cleaned is None:
+        cleaned = [_clean_hierarchy_cell(df.at[idx, col]) for col in cols]
+        last_filled = -1
+        for i, val in enumerate(cleaned):
+            if val is not None:
+                last_filled = i
+        if last_filled < 0:
+            for col in cols:
                 df.at[idx, col] = None
-                seen_blank = True
+            continue
+        for i, col in enumerate(cols):
+            if i > last_filled:
+                df.at[idx, col] = None
+            elif cleaned[i] is None:
+                df.at[idx, col] = HIERARCHY_GAP_PLACEHOLDER
             else:
-                df.at[idx, col] = cleaned
-    df = df[df[cols[0]].notna()]
-    return df
-def _drop_non_leaf_hierarchy_rows(df, hierarchy_cols):
-    """Plotly requires every sunburst row to be a leaf.
+                df.at[idx, col] = cleaned[i]
+    df = df[df[cols[0]].notna()].copy()
+    return df.reset_index(drop=True)
 
-    A blank deeper cell makes that row a prefix of any sibling that continues,
-    which Plotly rejects. Drop those prefix rows so the branch simply ends
-    instead of inserting an N/A child. Rows that truly stop (no deeper sibling)
-    are kept and render as shorter branches.
+
+def _hierarchy_path_tuple(row, cols):
+    """Filled hierarchy labels in order (stops at first blank/null)."""
+    parts = []
+    for col in cols:
+        val = row[col]
+        if _is_blank_hierarchy_value(val):
+            break
+        parts.append(str(val))
+    return tuple(parts)
+
+
+def _drop_non_leaf_hierarchy_rows(df, hierarchy_cols):
+    """Plotly requires every sunburst path row to be a leaf.
+
+    Drop any row whose filled path is a strict prefix of another kept row.
+    Rows that truly stop (no deeper sibling under the same prefix) stay and
+    render as shorter branches. Uses path tuples (not string startswith) so
+    labels like 'AB'+'C' vs 'A'+'BC' cannot false-match.
+
+    Also removes rows that would fail Plotly's concat-substring leaf check
+    (separator='' after null→''), which is stricter than pure path-prefix.
     """
     cols = [c for c in (hierarchy_cols or []) if c in getattr(df, "columns", [])]
     if not cols or df is None or df.empty:
         return df
 
-    def _key(row):
-        parts = []
+    df = df.copy().reset_index(drop=True)
+    paths = [_hierarchy_path_tuple(row, cols) for _, row in df.iterrows()]
+
+    keep_mask = []
+    for path in paths:
+        is_prefix = any(
+            len(other) > len(path) and other[: len(path)] == path
+            for other in paths
+        )
+        keep_mask.append(not is_prefix)
+
+    out = df.loc[keep_mask].reset_index(drop=True)
+    if out.empty:
+        return out
+
+    # Plotly _check_dataframe_all_leaves: after sorting, if a null-padded row's
+    # concat is a substring of another row's concat, it raises Non-leaves.
+    def _concat_key(row):
+        bits = []
         for col in cols:
             val = row[col]
-            if _is_blank_hierarchy_value(val):
-                break
-            parts.append(str(val))
-        # Separator avoids false prefix matches like "AB"+"C" vs "A"+"BC".
-        return "\x1f".join(parts)
+            bits.append("" if _is_blank_hierarchy_value(val) else str(val))
+        return "".join(bits)
 
-    keys = [_key(row) for _, row in df.iterrows()]
-    keep_index = []
-    for idx, key in zip(df.index, keys):
-        is_prefix = any(
-            other != key and other.startswith(key) and len(other) > len(key)
-            for other in keys
-        )
-        if not is_prefix:
-            keep_index.append(idx)
-    if not keep_index:
-        return df.iloc[0:0]
-    return df.loc[keep_index].copy()
+    keys = [_concat_key(row) for _, row in out.iterrows()]
+    has_null = [
+        any(_is_blank_hierarchy_value(row[col]) for col in cols)
+        for _, row in out.iterrows()
+    ]
+    keep2 = []
+    for i, key in enumerate(keys):
+        bad = False
+        if has_null[i] and key:
+            for j, other in enumerate(keys):
+                if i == j or not other or key == other:
+                    continue
+                if key in other:
+                    bad = True
+                    break
+        keep2.append(not bad)
+
+    return out.loc[keep2].reset_index(drop=True)
 
 
 def _wrap_hover_text(text, max_chars=48) -> str:
@@ -760,7 +812,7 @@ def create_sunburst_chart(
 
     except Exception as e:
         logger.exception("Ошибка построения диаграммы")
-        return f"<p style='color:red'>Ошибка: {str(e)}</p>", 800
+        return ("<!DOCTYPE html><html><head><meta charset='utf-8'><style>body{font:16px/1.4 Arial,sans-serif;padding:24px;color:#b00020;}pre{white-space:pre-wrap;font:14px/1.4 Consolas,monospace;}</style></head><body><p><b>Chart error</b></p><pre>" + str(e) + "</pre></body></html>"), 800
 
 
 def build_d3_payload(

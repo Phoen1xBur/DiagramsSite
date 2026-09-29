@@ -220,16 +220,25 @@
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
   position: relative;
   overflow: auto;
+  /* Center chart when zoomed out; still scrollable when zoomed in. */
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .plot-scroll {
   position: relative;
+  flex: 0 0 auto;
+  /* When content is larger than .plot, keep top-left reachable via scroll */
+  margin: auto;
 }
 
 .plot-inner {
   position: absolute;
   top: 0;
   left: 0;
+  /* Keep top-left origin: plot-scroll is sized to the scaled box, and .plot
+     flex-centers that box so shrink/grow stays in the middle of the viewport. */
   transform-origin: top left;
 }
 
