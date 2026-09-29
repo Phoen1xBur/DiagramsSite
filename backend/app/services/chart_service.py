@@ -58,30 +58,29 @@ def _clean_hierarchy_cell(val):
 def _truncate_hierarchy_paths(df, hierarchy_cols):
     """Blank cells end the branch: null that cell and every deeper level.
 
-    Plotly rejects a None parent that still has a non-None child, so a gap
-    in the middle of a row must wipe the tail rather than become an N/A node.
+    Prefer terminating at the first blank over collapsing deeper values into
+    shallower rings (e.g. a blank mid-level must not place deeper labels on
+    that ring). Plotly also rejects a None parent that still has a non-None child.
     """
-    cols = [c for c in (hierarchy_cols or []) if c in df.columns]
-    if not cols or df.empty:
+    cols = [c for c in (hierarchy_cols or []) if c in getattr(df, "columns", [])]
+    if not cols or df is None or getattr(df, "empty", True):
         return df
 
-    def _fix(row):
+    df = df.copy()
+    # Explicit row/column loop - avoid DataFrame.apply mutation edge cases that
+    # could leave a deeper value after a blank mid-level cell.
+    for idx in list(df.index):
         seen_blank = False
         for col in cols:
-            if seen_blank or _clean_hierarchy_cell(row[col]) is None:
-                row[col] = None
+            raw = df.at[idx, col]
+            cleaned = None if seen_blank else _clean_hierarchy_cell(raw)
+            if cleaned is None:
+                df.at[idx, col] = None
                 seen_blank = True
             else:
-                row[col] = _clean_hierarchy_cell(row[col])
-        return row
-
-    df = df.copy()
-    df[cols] = df[cols].apply(_fix, axis=1)
+                df.at[idx, col] = cleaned
     df = df[df[cols[0]].notna()]
     return df
-
-
-
 def _drop_non_leaf_hierarchy_rows(df, hierarchy_cols):
     """Plotly requires every sunburst row to be a leaf.
 
@@ -99,10 +98,10 @@ def _drop_non_leaf_hierarchy_rows(df, hierarchy_cols):
         for col in cols:
             val = row[col]
             if _is_blank_hierarchy_value(val):
-                parts.append("")
-            else:
-                parts.append(str(val))
-        return "".join(parts)
+                break
+            parts.append(str(val))
+        # Separator avoids false prefix matches like "AB"+"C" vs "A"+"BC".
+        return "\x1f".join(parts)
 
     keys = [_key(row) for _, row in df.iterrows()]
     keep_index = []
@@ -597,8 +596,14 @@ def create_sunburst_chart(
             font_sizes = None
 
         # Wrap long hover labels so tooltip is not one endless line.
+        # Never show "undefined" / "N/A" in hover text.
         if raw_labels:
-            raw_labels = [_wrap_hover_text(lbl, max_chars=42) for lbl in raw_labels]
+            def _clean_hover_label(lbl):
+                text = "" if lbl is None else str(lbl).strip()
+                if text.lower() in ("", "undefined", "null", "n/a", "na", "none", "nan", "<na>"):
+                    return ""
+                return _wrap_hover_text(text, max_chars=42)
+            raw_labels = [_clean_hover_label(lbl) for lbl in raw_labels]
 
         fig.update_layout(
             hovermode='closest',

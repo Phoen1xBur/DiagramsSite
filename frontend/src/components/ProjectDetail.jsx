@@ -119,11 +119,20 @@ function ProjectDetail() {
   const currentFileName = (fileId || currentData) ? (projectFiles.find(f => f.id === fileId)?.original_filename || pendingFileName || '') : ''
 
   const buildExportMatrix = (cols, rows) => {
+    // Same headers as the data-editor table; one cell per column (empty string for blanks).
     const headers = (cols || []).map(c => String(c ?? ''))
-    const body = (rows || []).map(row => headers.map(col => {
-      const raw = row?.[col]
-      return raw === null || raw === undefined ? '' : String(raw)
-    }))
+    const body = (rows || []).map(row => {
+      if (Array.isArray(row)) {
+        return headers.map((_, i) => {
+          const raw = row[i]
+          return raw === null || raw === undefined ? '' : String(raw)
+        })
+      }
+      return headers.map(col => {
+        const raw = row?.[col]
+        return raw === null || raw === undefined ? '' : String(raw)
+      })
+    })
     return { headers, body }
   }
 
@@ -144,10 +153,22 @@ function ProjectDetail() {
     return s
   }
 
+  /** Strip every trailing .xlsx/.xls/.csv so downloads never become name.xlsx.xlsx */
+  const stripSpreadsheetExt = (filename) => {
+    let stem = String(filename || 'data').replace(/\s+/g, '_').trim() || 'data'
+    let prev
+    do {
+      prev = stem
+      stem = stem.replace(/\.(xlsx|xls|csv)$/i, '')
+    } while (stem !== prev)
+    return stem || 'data'
+  }
+
   const exportAsCsv = (cols, rows, filename) => {
     const { headers, body } = buildExportMatrix(cols, rows)
     const csv = [headers, ...body].map(line => line.map(escapeCsv).join(',')).join('\n')
-    downloadBlob(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' }), filename)
+    const outName = stripSpreadsheetExt(filename) + '.csv'
+    downloadBlob(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' }), outName)
   }
 
   const xmlEscape = (value) => String(value ?? '')
@@ -156,28 +177,27 @@ function ProjectDetail() {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
 
-  // SpreadsheetML (.xls) — Excel opens with headers aligned 1:1 to data columns.
-  // Avoids CSV locale/comma-decimal column shifts that made headers look off-by-one.
+  // SpreadsheetML (.xls). ss:Index keeps blank cells from collapsing under wrong headers.
   const exportAsXlsx = async (cols, rows, filename) => {
     const { headers, body } = buildExportMatrix(cols, rows)
-    const cell = (v) => `<Cell><Data ss:Type="String">${xmlEscape(v)}</Data></Cell>`
-    const rowXml = (vals) => `<Row>${vals.map(cell).join('')}</Row>`
-    const xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:html="http://www.w3.org/TR/REC-html40">
-<Worksheet ss:Name="Данные"><Table>
-${rowXml(headers)}
-${body.map(rowXml).join('\n')}
-</Table></Worksheet></Workbook>`
-    const outName = filename.toLowerCase().endsWith('.xls')
-      ? filename
-      : filename.replace(/\.xlsx$/i, '.xls')
+    const cell = (v, i) => '<Cell ss:Index="' + (i + 1) + '"><Data ss:Type="String">' + xmlEscape(v) + '</Data></Cell>'
+    const rowXml = (vals) => '<Row>' + vals.map(cell).join('') + '</Row>'
+    const xml = [
+      '<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>',
+      '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"',
+      ' xmlns:o="urn:schemas-microsoft-com:office:office"',
+      ' xmlns:x="urn:schemas-microsoft-com:office:excel"',
+      ' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"',
+      ' xmlns:html="http://www.w3.org/TR/REC-html40">',
+      '<Worksheet ss:Name="Данные"><Table>',
+      rowXml(headers),
+      body.map(rowXml).join('\n'),
+      '</Table></Worksheet></Workbook>'
+    ].join('\n')
+    const outName = stripSpreadsheetExt(filename) + '.xls'
     downloadBlob(
       new Blob(['\ufeff' + xml], { type: 'application/vnd.ms-excel;charset=utf-8;' }),
-      outName.endsWith('.xls') ? outName : `${outName}.xls`
+      outName
     )
   }
 
@@ -186,16 +206,12 @@ ${body.map(rowXml).join('\n')}
       showNotification('Нет данных для экспорта', 'warning')
       return
     }
-    const base = (filenameBase || 'data').replace(/\s+/g, '_')
-    const lower = base.toLowerCase()
-    if (lower.endsWith('.csv')) {
-      exportAsCsv(cols, rows, base)
+    const originalLower = String(filenameBase || '').toLowerCase()
+    const stem = stripSpreadsheetExt(filenameBase || 'data')
+    if (originalLower.endsWith('.csv')) {
+      exportAsCsv(cols, rows, stem)
     } else {
-      // Default to Excel SpreadsheetML; keep one header cell per data column.
-      const name = lower.endsWith('.xlsx')
-        ? base.slice(0, -5) + '.xls'
-        : (lower.endsWith('.xls') ? base : base + '.xls')
-      await exportAsXlsx(cols, rows, name)
+      await exportAsXlsx(cols, rows, stem)
     }
   }
 
@@ -216,13 +232,16 @@ ${body.map(rowXml).join('\n')}
     }
   }
 
-  const handleExportCurrentFile = async () => {
-    if (!currentData || currentData.length === 0) {
+  const handleExportCurrentFile = async (colsArg, rowsArg) => {
+    // Prefer columns/rows from the open data editor so headers match the UI table.
+    const cols = (Array.isArray(colsArg) && colsArg.length) ? colsArg : columns
+    const rows = (Array.isArray(rowsArg) && rowsArg.length) ? rowsArg : currentData
+    if (!rows || rows.length === 0) {
       showNotification('Нет данных для экспорта!', 'warning')
       return
     }
     try {
-      await exportTable(columns, currentData, currentFileName || 'data')
+      await exportTable(cols, rows, currentFileName || 'data')
       showNotification('Данные экспортированы!', 'success')
     } catch (err) {
       showNotification('Ошибка экспорта: ' + err.message, 'error')

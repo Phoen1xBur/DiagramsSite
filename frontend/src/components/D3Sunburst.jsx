@@ -244,7 +244,12 @@ function D3Sunburst({ payload, onSizeChange }) {
       setCenterLabel(root)
 
       const pathHoverText = (d) => {
-        const names = d.ancestors().map(a => a.data?.name).filter(Boolean).reverse()
+        const bad = new Set(['', 'undefined', 'null', 'n/a', 'na', 'none', 'nan', '<na>'])
+        const names = d.ancestors()
+          .map(a => a?.data?.name)
+          .map(n => (n == null ? '' : String(n).trim()))
+          .filter(n => n && !bad.has(n.toLowerCase()))
+          .reverse()
         return names.join(' → ')
       }
 

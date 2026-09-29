@@ -1269,7 +1269,7 @@ function EditorTab({ data, columns, onDataUpdated, onExportCurrentFile, fileId, 
           <div className="editor-footer">
             <button
               type="button"
-              onClick={onExportCurrentFile}
+              onClick={() => onExportCurrentFile(localColumns, localData)}
               className="export-btn"
               title="Экспорт в CSV"
             >

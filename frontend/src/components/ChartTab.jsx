@@ -1308,14 +1308,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         >
           +
         </button>
-        <button
-          type="button"
-          className="zoom-reset"
-          onClick={() => handleZoomChange(100)}
-          title="Сбросить масштаб"
-        >
-          100%
-        </button>
+        
         <span className="zoom-spacer" />
         <button
           type="button"
