@@ -255,7 +255,9 @@ def create_sunburst_chart(
         # Clean hierarchy cells: blank/NaN terminate the branch (no synthetic N/A sectors).
         df = _truncate_hierarchy_paths(df, hierarchy_cols)
         
-        # Обработка столбца значений
+        # Value column: always numeric for px.sunburst. Null value_col → count ones.
+        # Plotly/pandas max-agg fails on object/mixed (str+None→float) columns.
+        COUNT_COL = "_sunburst_count"
         use_value_col = None
         original_values_col = None
         uniform_value_col = None
@@ -265,7 +267,7 @@ def create_sunburst_chart(
             
             # Сохраняем оригинальные значения ДО замены 0->1 для отображения в hover
             original_values_col = f'{value_col}_original'
-            df[original_values_col] = df[value_col].copy()
+            df[original_values_col] = df[value_col].astype(float)
             
             # Фильтрация нулевых значений если нужно
             if not show_zero_values:
@@ -273,8 +275,12 @@ def create_sunburst_chart(
             
             # ВАЖНО: Plotly не может отображать сектора с нулевым размером
             # Поэтому заменяем 0 на 1 (минимальное значение для отображения)
-            df[value_col] = df[value_col].replace(0, 1)
+            df[value_col] = df[value_col].replace(0, 1).astype(float)
             use_value_col = value_col
+        else:
+            # Counts mode: explicit numeric ones (avoid Plotly aggregating leftover object cols)
+            df[COUNT_COL] = 1.0
+            use_value_col = COUNT_COL
 
         # Равномерное распределение: подбираем веса так, чтобы все узлы на уровне были равны
         if uniform_size and hierarchy_cols:
@@ -317,8 +323,10 @@ def create_sunburst_chart(
         user_color_map = dict(color_map or {})
         # "use_gradient" UI means depth lightening of nested sectors, NOT value buckets.
         depth_gradient = bool(use_gradient)
-        # px.sunburst still needs a color column; final fills come from user_color_map + depth blend.
-        color_col = hierarchy_cols[-1] if hierarchy_cols else None
+        # Do NOT pass a hierarchy color column into px.sunburst: path cells with
+        # terminal None mixed with labels are object dtype, and Plotly's parent
+        # aggregation runs max() on them → "agg function failed [how->max,dtype->object]".
+        # Final fills come from user_color_map + depth blend below.
         
         # Определяем режим суммирования значений
         # Используем total, так как значения заданы только для листьев
@@ -333,14 +341,35 @@ def create_sunburst_chart(
         # from 12:00 in the same order as the table (top → bottom).
         df_plot = df.iloc[::-1].reset_index(drop=True)
 
+        # Slim frame: only path + numeric values (+ optional hover originals).
+        # Extra object columns (e.g. unused "Выполнено %") also get max-aggregated
+        # by Plotly and can raise the same dtype error.
+        plot_cols = [c for c in hierarchy_cols if c in df_plot.columns]
+        if use_value_col and use_value_col in df_plot.columns:
+            df_plot[use_value_col] = pd.to_numeric(df_plot[use_value_col], errors="coerce").fillna(0).astype(float)
+            plot_cols.append(use_value_col)
+        custom_cols = []
+        if original_values_col and original_values_col in df_plot.columns:
+            df_plot[original_values_col] = pd.to_numeric(
+                df_plot[original_values_col], errors="coerce"
+            ).fillna(0).astype(float)
+            custom_cols.append(original_values_col)
+            plot_cols.append(original_values_col)
+        # Ensure path segments are str or None (never empty string / float NaN).
+        for col in hierarchy_cols:
+            if col not in df_plot.columns:
+                continue
+            df_plot[col] = df_plot[col].map(
+                lambda v: None if _is_blank_hierarchy_value(v) else str(v).strip()
+            )
+        df_plot = df_plot[plot_cols].copy()
+
         fig = px.sunburst(
             df_plot,
             path=hierarchy_cols,
             values=use_value_col,
-            color=color_col,
             color_discrete_sequence=px.colors.qualitative.Pastel,
-            color_discrete_map=None,
-            custom_data=[original_values_col] if original_values_col else None,
+            custom_data=custom_cols if custom_cols else None,
         )
 
         # Настройка hover
