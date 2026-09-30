@@ -76,14 +76,16 @@ services:
       args:
         VITE_DEBUG: ${VITE_DEBUG:-False}
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/v1}
-        GIT_SHA: ${GIT_SHA:-dev}
+        # Required for Dockerfile.prod. Export GIT_SHA or: --build-arg GIT_SHA=$(git rev-parse --short HEAD)
+        # Windows PS: $env:GIT_SHA = (git rev-parse --short HEAD); docker compose build frontend
+        GIT_SHA: ${GIT_SHA}
     container_name: sunburst_frontend
     env_file:
       - .env
     environment:
       VITE_DEBUG: ${VITE_DEBUG:-False}
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/v1}
-      VITE_GIT_SHA: ${GIT_SHA:-dev}
+      VITE_GIT_SHA: ${GIT_SHA:-}
     ports:
       - "5173:5173"
     # Один compose: dev монтируем в /app (исходники для vite dev), прод — в /src, чтобы не затереть /app (там уже собранный dist в образе)
