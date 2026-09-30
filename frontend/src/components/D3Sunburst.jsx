@@ -17,7 +17,13 @@ function isBadLabel(n) {
   return BAD_LABELS.has(s.toLowerCase())
 }
 
-function D3Sunburst({ payload, onSizeChange }) {
+function D3Sunburst({
+  payload,
+  onSizeChange,
+  showFullText: showFullTextProp,
+  textAlongCircumference: textAlongCircumferenceProp,
+  dynamicFontSize: dynamicFontSizeProp,
+}) {
   const containerRef = useRef(null)
   const tooltipRef = useRef(null)
 
@@ -46,9 +52,16 @@ function D3Sunburst({ payload, onSizeChange }) {
       const palette = settings?.palette || []
       const baseSize = settings?.baseSize || 800
       const maxSize = settings?.maxSize || 5000
-      const showFullText = Boolean(settings?.showFullText)
-      const textAlongCircumference = Boolean(settings?.textAlongCircumference)
-      const dynamicFontSize = Boolean(settings?.dynamicFontSize)
+      // Live checkbox props override payload.settings so toggles rebuild immediately.
+      const showFullText = showFullTextProp != null
+        ? Boolean(showFullTextProp)
+        : Boolean(settings?.showFullText)
+      const textAlongCircumference = textAlongCircumferenceProp != null
+        ? Boolean(textAlongCircumferenceProp)
+        : Boolean(settings?.textAlongCircumference)
+      const dynamicFontSize = dynamicFontSizeProp != null
+        ? Boolean(dynamicFontSizeProp)
+        : Boolean(settings?.dynamicFontSize)
       const useGradient = settings?.useGradient !== false
       const colorMap = settings?.colorMap || {}
 
@@ -153,9 +166,13 @@ function D3Sunburst({ payload, onSizeChange }) {
         const ringPx = Math.max(1, d.y1 - d.y0)
         // Cap width by both arc length and ring thickness so labels
         // cannot spill into neighboring rings (PDF captures it).
-        const widthBudget = textAlongCircumference
-          ? Math.min(arcLen, ringPx * 2.4)
-          : Math.min(arcLen * 0.95, ringPx * 1.6)
+        // Full-text: use the full arc length so words wrap along the ring
+        // instead of being force-truncated. Normal mode keeps the tight budget.
+        const widthBudget = showFullText
+          ? (textAlongCircumference ? arcLen : Math.max(arcLen * 0.98, ringPx * 2.2))
+          : (textAlongCircumference
+            ? Math.min(arcLen, ringPx * 2.4)
+            : Math.min(arcLen * 0.95, ringPx * 1.6))
         const maxWidth = Math.max(0, widthBudget - TEXT_PADDING * 2)
         const rawName = String(node.data?.name || '').trim()
         if (!rawName || isBadLabel(rawName)) return []
@@ -304,20 +321,22 @@ function D3Sunburst({ payload, onSizeChange }) {
             lines.push(line)
             line = w
           }
-          if (lines.length >= 3) break
+          if (!showFullText && lines.length >= 3) break
         }
-        if (line && lines.length < 3) lines.push(line)
-        const finalLines = lines.slice(0, 3).map((l, i, arr) => {
+        if (line && (showFullText || lines.length < 3)) lines.push(line)
+        // Full-text: keep every wrapped line, never ellipsize the center label.
+        const finalLines = (showFullText ? lines : lines.slice(0, 3)).map((l, i, arr) => {
+          if (showFullText) return l
           if (i < arr.length - 1) return truncateNoEllipsis(l, maxWidth, fontPx)
           const overflow = words.join(' ') !== arr.join(' ') || measureWith(fontPx, l) > maxWidth
           return overflow ? ellipsize(l, maxWidth, fontPx) : l
         }).filter(Boolean)
         if (!finalLines.length) {
-          centerText.text(ellipsize(text, maxWidth, fontPx))
+          centerText.text(showFullText ? text : ellipsize(text, maxWidth, fontPx))
           return
         }
         if (finalLines.length <= 1) {
-          centerText.text(finalLines[0] || ellipsize(text, maxWidth, fontPx))
+          centerText.text(finalLines[0] || (showFullText ? text : ellipsize(text, maxWidth, fontPx)))
           return
         }
         const lineDy = fontPx * 1.05
@@ -408,12 +427,16 @@ function D3Sunburst({ payload, onSizeChange }) {
       const renderLabels = () => {
         labelG.selectAll('*').remove()
         defs.selectAll('clipPath').remove()
-        nodes.forEach((node) => {
-          defs.append('clipPath')
-            .attr('id', `d3-clip-${node._idx}`)
-            .append('path')
-            .attr('d', arc(node.current))
-        })
+        // Clip only in truncated mode. Full-text must keep the whole string
+        // visible (wrap along arc or spill); clipPath mid-word cuts look like ellipsis.
+        if (!showFullText) {
+          nodes.forEach((node) => {
+            defs.append('clipPath')
+              .attr('id', `d3-clip-${node._idx}`)
+              .append('path')
+              .attr('d', arc(node.current))
+          })
+        }
         nodes.forEach((node) => {
           const fontPx = fontForNode(node)
           if (!labelVisible(node.current, fontPx)) return
@@ -421,10 +444,10 @@ function D3Sunburst({ payload, onSizeChange }) {
           if (!lines.length) return
 
           const dCur = node.current
-          // Clip on a <g> so curved/radial transforms stay inside the sector.
-          const clipped = labelG
-            .append('g')
-            .attr('clip-path', `url(#d3-clip-${node._idx})`)
+          const clipped = labelG.append('g')
+          if (!showFullText) {
+            clipped.attr('clip-path', `url(#d3-clip-${node._idx})`)
+          }
 
           const t = clipped
             .append('text')
@@ -504,7 +527,7 @@ function D3Sunburst({ payload, onSizeChange }) {
     return () => {
       hideTooltip()
     }
-  }, [payload, onSizeChange])
+  }, [payload, onSizeChange, showFullTextProp, textAlongCircumferenceProp, dynamicFontSizeProp])
 
   useEffect(() => {
     return () => {

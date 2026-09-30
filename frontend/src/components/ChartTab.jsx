@@ -1604,6 +1604,9 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
             >
               <D3Sunburst
                 payload={d3Payload}
+                showFullText={showFullText}
+                textAlongCircumference={textAlongCircumference}
+                dynamicFontSize={dynamicFontSize}
                 onSizeChange={handleD3SizeChange}
               />
             </div>
