@@ -542,53 +542,49 @@ def create_sunburst_chart(
                     return 1.0
 
             # Рассчитываем переносы для каждого узла на основе длины дуги в пикселях
-            wrapped_labels = []
-            node_depths = []
-            
-            for idx, (label, parent) in enumerate(zip(original_labels, original_parents)):
-                label_str = str(label)
-                
-                if parent == '' or parent is None:
-                    # Корневой узел (центр) - диаметр центра примерно = ring_thickness
-                    # Keep center title balanced (e.g. long Russian root labels).
-                    center_width = ring_thickness * 1.6 * TEXT_FILL_RATIO
-                    max_chars = max(10, min(22, int(center_width / char_px)))
-                    depth = 0
-                else:
-                    # Рассчитываем длину дуги для этого сектора
-                    if original_ids:
-                        node_value = get_node_value(original_ids[idx])
-                        depth = get_depth(original_ids[idx])
-                    else:
-                        node_value = get_node_value(idx)
+            def build_wrapped(ring_px, font_px, full):
+                """Wrap each label to the arc at this ring thickness and font.
+
+                full=True keeps the whole string: no 22-char center cap, and
+                narrow sectors may use shorter lines instead of being clipped.
+                """
+                char = max(0.5, font_px * CHAR_WIDTH_RATIO)
+                labels_out = []
+                depths_out = []
+                lines_per_level = {}
+                for idx, (label, parent) in enumerate(zip(original_labels, original_parents)):
+                    label_str = str(label)
+                    if parent == '' or parent is None:
+                        center_width = ring_px * 1.6 * TEXT_FILL_RATIO
+                        max_chars = max(10, int(center_width / char))
+                        if not full:
+                            max_chars = min(22, max_chars)
                         depth = 0
-                    
-                    # Доля сектора от полного круга
-                    sector_fraction = node_value / max(1.0, root_total)
-                    
-                    # Угол сектора в радианах
-                    sector_angle = sector_fraction * 2 * math.pi
-                    
-                    # Радиус до середины кольца на этой глубине
-                    radius_to_middle = ring_thickness * (depth + 0.5)
-                    
-                    # Длина дуги в пикселях (на середине кольца)
-                    arc_length = sector_angle * radius_to_middle * TEXT_FILL_RATIO
-                    
-                    # Максимальное количество символов в строке
-                    # Минимум 12 символов, чтобы короткие слова не разбивались
-                    max_chars = max(12, int(arc_length / char_px))
-                
-                wrapped = wrap_text(label_str, max_length=max_chars)
-                wrapped_labels.append(wrapped)
-                node_depths.append(depth)
-                
-                # Считаем максимальное количество строк на каждом уровне
-                lines = count_lines(wrapped)
-                if depth not in max_lines_per_level:
-                    max_lines_per_level[depth] = lines
-                else:
-                    max_lines_per_level[depth] = max(max_lines_per_level[depth], lines)
+                    else:
+                        if original_ids:
+                            node_value = get_node_value(original_ids[idx])
+                            depth = get_depth(original_ids[idx])
+                        else:
+                            node_value = get_node_value(idx)
+                            depth = 0
+                        sector_fraction = node_value / max(1.0, root_total)
+                        sector_angle = sector_fraction * 2 * math.pi
+                        radius_to_middle = ring_px * (depth + 0.5)
+                        # Tangential labels run along the arc; horizontal labels
+                        # use the same chord-sized width budget.
+                        arc_length = sector_angle * radius_to_middle * TEXT_FILL_RATIO
+                        min_chars = 4 if full else 12
+                        max_chars = max(min_chars, int(arc_length / char))
+                    wrapped = wrap_text(label_str, max_length=max_chars)
+                    labels_out.append(wrapped)
+                    depths_out.append(depth)
+                    nlines = count_lines(wrapped)
+                    lines_per_level[depth] = max(lines_per_level.get(depth, 0), nlines)
+                return labels_out, depths_out, lines_per_level
+
+            wrapped_labels, node_depths, max_lines_per_level = build_wrapped(
+                ring_thickness, text_font_size, show_full_text
+            )
 
         # === ШАГ 3: Обработка текста в зависимости от режима ===
         RING_PADDING = 10  # Отступ сверху и снизу от текста в пикселях
@@ -598,33 +594,47 @@ def create_sunburst_chart(
         # Массив размеров шрифта для каждого сектора (динамический размер)
         font_sizes = []
         
-        # Always keep labels readable: truncate/ellipsis when text cannot fit the sector.
-        # "show_full_text" only allows a bit more room / more lines — never unlimited overflow.
+        # Truncated mode still ellipsizes lines that cannot fit the ring.
+        # show_full_text keeps every line: grow the chart (cap 6400), shrink
+        # the font down to 8px if needed, and re-wrap to the new arc.
+        # Never append "...".
         min_line_height = FONT_SIZE_MIN * LINE_HEIGHT_RATIO
-        if show_full_text:
-            MAX_FULL_TEXT_SIZE = 2200
-            max_lines_any_level = max(max_lines_per_level.values()) if max_lines_per_level else 1
-            line_height_px = text_font_size * LINE_HEIGHT_RATIO
-            # Cap how many lines we try to honor so one long label cannot explode the chart.
-            capped_lines = min(max_lines_any_level, 4)
-            needed_thickness = capped_lines * line_height_px + RING_PADDING * 2
-            needed_chart_size = int(needed_thickness * (levels_count + 1) * 2 + 40)
-            chart_size = min(max(chart_size, needed_chart_size), MAX_FULL_TEXT_SIZE)
-            ring_thickness = chart_size / 2 / (levels_count + 1)
-            available_height = ring_thickness - RING_PADDING * 2
-            if capped_lines * line_height_px > available_height > 0:
-                needed_line_height = available_height / capped_lines
-                text_font_size = max(FONT_SIZE_MIN, int(needed_line_height / LINE_HEIGHT_RATIO))
-            max_lines_fit = max(2, min(4, int((ring_thickness - RING_PADDING * 2) / min_line_height)))
+        if show_full_text and wrapped_labels:
+            MAX_FULL_TEXT_SIZE = 6400
+            FULL_FONT_FLOOR = 8
+            for _ in range(8):
+                max_lines_any = max((count_lines(t) for t in wrapped_labels), default=1)
+                line_height_px = max(1.0, text_font_size * LINE_HEIGHT_RATIO)
+                needed_thickness = max_lines_any * line_height_px + RING_PADDING * 2
+                needed_chart_size = int(needed_thickness * (levels_count + 1) * 2 + 40)
+                new_size = int(min(max(chart_size, needed_chart_size), MAX_FULL_TEXT_SIZE))
+                new_ring = new_size / 2 / (levels_count + 1)
+                available = max(1.0, new_ring - RING_PADDING * 2)
+                new_font = text_font_size
+                if needed_chart_size > MAX_FULL_TEXT_SIZE:
+                    fit_font = int(available / max(1, max_lines_any) / LINE_HEIGHT_RATIO)
+                    new_font = max(
+                        FULL_FONT_FLOOR,
+                        min(text_font_size, fit_font if fit_font > 0 else FULL_FONT_FLOOR),
+                    )
+                size_changed = new_size != int(chart_size)
+                font_changed = new_font != text_font_size
+                chart_size = new_size
+                ring_thickness = new_ring
+                text_font_size = new_font
+                wrapped_labels, node_depths, max_lines_per_level = build_wrapped(
+                    ring_thickness, text_font_size, True
+                )
+                if not size_changed and not font_changed:
+                    break
         else:
             max_lines_fit = int((ring_thickness - RING_PADDING * 2) / min_line_height)
             max_lines_fit = max(2, max_lines_fit)
-
-        if wrapped_labels:
-            for idx in range(len(wrapped_labels)):
-                lines = count_lines(wrapped_labels[idx])
-                if lines > max_lines_fit:
-                    wrapped_labels[idx] = truncate_text(wrapped_labels[idx], max_lines_fit)
+            if wrapped_labels:
+                for idx in range(len(wrapped_labels)):
+                    line_count = count_lines(wrapped_labels[idx])
+                    if line_count > max_lines_fit:
+                        wrapped_labels[idx] = truncate_text(wrapped_labels[idx], max_lines_fit)
 
         # === ШАГ 4: Рассчитываем динамический размер шрифта для каждого сектора ===
         if dynamic_font_size:
@@ -839,12 +849,18 @@ def create_sunburst_chart(
         # Если используем динамические размеры - не применяем uniformtext 
         # (он нормализует все размеры и конфликтует с массивом font_sizes)
         if not font_sizes:
-            # Hide labels that still cannot fit — avoids bleeding into neighbor sectors.
-            # Full text remains available via hovertext.
-            fig.update_layout(
-                font=dict(family="Arial, sans-serif", size=text_font_size),
-                uniformtext=dict(mode="hide", minsize=FONT_SIZE_MIN),
-            )
+            # Truncated mode hides labels that still cannot fit the sector.
+            # show_full_text must stay visible: do not hide and do not ellipsize.
+            if show_full_text:
+                fig.update_layout(
+                    font=dict(family="Arial, sans-serif", size=text_font_size),
+                    uniformtext=dict(mode="show", minsize=8),
+                )
+            else:
+                fig.update_layout(
+                    font=dict(family="Arial, sans-serif", size=text_font_size),
+                    uniformtext=dict(mode="hide", minsize=FONT_SIZE_MIN),
+                )
         
         html = fig.to_html(include_plotlyjs="inline", full_html=True)
         hover_css = (
