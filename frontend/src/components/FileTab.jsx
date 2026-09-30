@@ -4,7 +4,7 @@ import CreateTableModal from './CreateTableModal'
 import { useNotification } from '../contexts/NotificationContext'
 import './FileTab.css'
 
-function FileTab({ onFileLoaded, currentData, columns, fileId, onFileLoadedCallback, projectId, onSwitchToEditor }) {
+function FileTab({ onFileLoaded, currentData, columns, fileId, onFileLoadedCallback, projectId, onSwitchToEditor, hasProjectFiles = false }) {
   const { showNotification } = useNotification()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -71,7 +71,7 @@ function FileTab({ onFileLoaded, currentData, columns, fileId, onFileLoadedCallb
 
   return (
     <div className="file-tab">
-      {!currentData ? (
+      {!currentData && !hasProjectFiles ? (
         <div className="empty-file-state">
           <div className="empty-file-icon">📁</div>
           <h3>Начните работу с данными</h3>

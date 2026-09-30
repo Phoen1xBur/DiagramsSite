@@ -12,6 +12,29 @@ const DEFAULT_SECTOR_PALETTE = [
   '#fb0d0d', '#da16ff', '#b68100'
 ]
 
+
+const normalizeHex = (value, fallback = '#1f77b4') => {
+  if (value == null) return fallback
+  let s = String(value).trim()
+  if (!s) return fallback
+  const rgb = s.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i)
+  if (rgb) {
+    const toHex = (n) => Number(n).toString(16).padStart(2, '0')
+    return `#${toHex(rgb[1])}${toHex(rgb[2])}${toHex(rgb[3])}`
+  }
+  if (s[0] !== '#') s = `#${s}`
+  const short = /^#([0-9a-fA-F]{3})$/.exec(s)
+  if (short) {
+    const [r, g, b] = short[1].split('')
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase()
+  }
+  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase()
+  return fallback
+}
+
+const sanitizeColumnLabel = (name) => String(name ?? '').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim()
+
+
 function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, openedDiagramId, fileName }) {
   const { showNotification } = useNotification()
   const [selectedColumns, setSelectedColumns] = useState([])
@@ -50,13 +73,36 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   const autoScrollIntervalRef = useRef(null)
 
   // Порядок столбцов всегда как в редакторе (из props)
-  useEffect(() => {
-    if (columns && columns.length > 0) {
-      setColumnOrder([...columns])
-      // По умолчанию выбираем первые 3 столбца только при первой загрузке файла
-      setSelectedColumns(prev => prev.length === 0 ? columns.slice(0, Math.min(3, columns.length)) : prev)
+    useEffect(() => {
+    const fromCols = Array.isArray(columns) ? columns.filter(c => c != null && String(c).length) : []
+    const fromData = (data && data[0] && typeof data[0] === 'object')
+      ? Object.keys(data[0]).filter(c => c != null && String(c).length)
+      : []
+    // Union: API columns first (spreadsheet order), then any extra keys present only in rows.
+    const merged = []
+    const seen = new Set()
+    for (const c of [...fromCols, ...fromData]) {
+      const key = String(c)
+      if (seen.has(key)) continue
+      seen.add(key)
+      merged.push(key)
     }
-  }, [columns])
+    if (!merged.length) return
+    setColumnOrder(prev => {
+      if (!prev?.length) return merged
+      // Keep user reorder for columns that still exist; append newly appeared ones.
+      const keep = prev.filter(c => seen.has(String(c)))
+      const keepSet = new Set(keep.map(String))
+      const added = merged.filter(c => !keepSet.has(String(c)))
+      return keep.length ? [...keep, ...added] : merged
+    })
+    setSelectedColumns(prev => {
+      const valid = (prev || []).filter(c => seen.has(String(c)))
+      if (valid.length) return valid
+      // Default: first up to 3 columns — include Цель/Ценности when present.
+      return merged.slice(0, Math.min(3, merged.length))
+    })
+  }, [columns, data])
 
   // Восстанавливаем сохраненные настройки диаграммы из localStorage (по индексам, чтобы переименование столбцов не ломало выбор)
   useEffect(() => {
@@ -130,22 +176,73 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   // Загружаем настройки сохраненной диаграммы при открытии (только если диаграмма привязана к текущему файлу)
   // Подставляем только те столбцы, которые есть в текущем файле (по имени)
   // Unique L1 sector names from first hierarchy column (table order).
-  const l1Sectors = useMemo(() => {
-    if (!data?.length || !selectedColumns?.length) return []
-    const col = selectedColumns[0]
+  const uniqueNamesForColumn = (col) => {
     const seen = new Set()
     const names = []
-    for (const row of data) {
+    for (const row of data || []) {
       const raw = row?.[col]
-      if (raw == null || raw === '') continue
-      const name = String(raw)
+      if (raw == null) continue
+      const name = String(raw).trim()
+      if (!name) continue
       if (!seen.has(name)) {
         seen.add(name)
         names.push(name)
       }
     }
     return names
+  }
+
+  // Color pickers target the first ring the user actually sees as multiple sectors
+  // (skip constant root columns like a single «Цель проекта»).
+  const l1Sectors = useMemo(() => {
+    if (!data?.length || !selectedColumns?.length) return []
+    for (const col of selectedColumns) {
+      const names = uniqueNamesForColumn(col)
+      if (names.length > 1) return names
+    }
+    return uniqueNamesForColumn(selectedColumns[0])
   }, [data, selectedColumns])
+
+  // Prefer numeric columns for the value dropdown; fall back to all columns.
+  // Sanitize labels so newline-in-header Excel quirks do not blank the <select>.
+  const valueColumnOptions = useMemo(() => {
+    const source = (columns && columns.length)
+      ? columns
+      : (columnOrder && columnOrder.length)
+        ? columnOrder
+        : (data?.[0] ? Object.keys(data[0]) : [])
+    const unique = []
+    const seen = new Set()
+    for (const col of source) {
+      if (col == null) continue
+      const key = String(col)
+      if (seen.has(key)) continue
+      seen.add(key)
+      unique.push(key)
+    }
+    const isNumericCol = (col) => {
+      let numeric = 0
+      let total = 0
+      const rows = data || []
+      for (let i = 0; i < rows.length && i < 80; i++) {
+        const raw = rows[i]?.[col]
+        if (raw == null) continue
+        const s = String(raw).trim()
+        if (!s) continue
+        total += 1
+        const normalized = s.replace('%', '').replace(/\s/g, '').replace(',', '.')
+        if (normalized !== '' && !Number.isNaN(Number(normalized))) numeric += 1
+      }
+      return total > 0 && numeric / total >= 0.5
+    }
+    const numeric = unique.filter(isNumericCol)
+    let list = numeric.length ? numeric : unique
+    // Always include the currently selected value so the controlled <select> is never blank.
+    if (valueColumn && !list.includes(valueColumn) && unique.includes(valueColumn)) {
+      list = [valueColumn, ...list]
+    }
+    return list.map(col => ({ value: col, label: sanitizeColumnLabel(col) || col }))
+  }, [columns, columnOrder, data, valueColumn])
 
   // Ensure every L1 sector has a color (defaults from palette).
   useEffect(() => {
@@ -154,8 +251,8 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
       let changed = false
       const next = { ...prev }
       l1Sectors.forEach((name, i) => {
-        if (!next[name]) {
-          next[name] = DEFAULT_SECTOR_PALETTE[i % DEFAULT_SECTOR_PALETTE.length]
+        if (!next[name] || !/^#[0-9a-fA-F]{6}$/.test(String(next[name]))) {
+          next[name] = normalizeHex(next[name] || DEFAULT_SECTOR_PALETTE[i % DEFAULT_SECTOR_PALETTE.length])
           changed = true
         }
       })
@@ -164,15 +261,18 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   }, [l1Sectors])
 
   const handleSectorColorChange = (name, hex) => {
-    setColorMap(prev => ({ ...prev, [name]: hex }))
+    setColorMap(prev => ({ ...prev, [name]: normalizeHex(hex) }))
   }
 
   const handleResetSectorColors = () => {
-    const next = {}
-    l1Sectors.forEach((name, i) => {
-      next[name] = DEFAULT_SECTOR_PALETTE[i % DEFAULT_SECTOR_PALETTE.length]
+    if (!l1Sectors.length) return
+    setColorMap(prev => {
+      const next = { ...prev }
+      l1Sectors.forEach((name, i) => {
+        next[name] = normalizeHex(DEFAULT_SECTOR_PALETTE[i % DEFAULT_SECTOR_PALETTE.length])
+      })
+      return next
     })
-    setColorMap(next)
   }
 
   useEffect(() => {
@@ -421,7 +521,21 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   const clampZoom = (value) => Math.min(500, Math.max(25, value))
 
   const handleZoomChange = (value) => {
-    setZoomPercent(clampZoom(value))
+    const next = clampZoom(value)
+    const plotEl = plotAreaRef.current?.querySelector?.('.plot')
+    if (plotEl && contentSize.width && contentSize.height) {
+      const prev = zoomPercent || 100
+      const cx = plotEl.scrollLeft + plotEl.clientWidth / 2
+      const cy = plotEl.scrollTop + plotEl.clientHeight / 2
+      const ratio = next / prev
+      setZoomPercent(next)
+      requestAnimationFrame(() => {
+        plotEl.scrollLeft = cx * ratio - plotEl.clientWidth / 2
+        plotEl.scrollTop = cy * ratio - plotEl.clientHeight / 2
+      })
+      return
+    }
+    setZoomPercent(next)
   }
 
   useEffect(() => {
@@ -488,10 +602,27 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
     if (!clone.getAttribute('xmlns')) {
       clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
     }
-    // Inline computed size so rasterization is crisp even if CSS sized the live node.
-    const bbox = svgEl.getBoundingClientRect()
-    if (!clone.getAttribute('width') && bbox.width) clone.setAttribute('width', String(Math.round(bbox.width)))
-    if (!clone.getAttribute('height') && bbox.height) clone.setAttribute('height', String(Math.round(bbox.height)))
+    // Prefer explicit chart diameter / viewBox over CSS-transformed getBoundingClientRect
+    // (zoom scale + negative viewBox previously cropped PDF to the bottom-right quadrant).
+    const diameterAttr = svgEl.getAttribute('data-chart-diameter')
+    const vb = (svgEl.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number)
+    let exportW = Number(diameterAttr) || Number(clone.getAttribute('width')) || 0
+    let exportH = Number(diameterAttr) || Number(clone.getAttribute('height')) || 0
+    if ((!exportW || !exportH) && vb.length === 4 && vb.every(n => Number.isFinite(n))) {
+      exportW = Math.abs(vb[2]) || exportW
+      exportH = Math.abs(vb[3]) || exportH
+    }
+    if (!exportW || !exportH) {
+      const bbox = svgEl.getBoundingClientRect()
+      exportW = Math.round(bbox.width) || contentSize.width || 800
+      exportH = Math.round(bbox.height) || contentSize.height || 800
+    }
+    exportW = Math.max(1, Math.round(exportW))
+    exportH = Math.max(1, Math.round(exportH))
+    clone.setAttribute('width', String(exportW))
+    clone.setAttribute('height', String(exportH))
+    // Force a positive-origin viewBox so rasterizers never drop the negative quadrant.
+    clone.setAttribute('viewBox', `0 0 ${exportW} ${exportH}`)
     const xml = new XMLSerializer().serializeToString(clone)
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`
   }
@@ -581,9 +712,11 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
   }
 
   const rasterizeSvgElement = async (svgEl, scale = 2) => {
-    const bbox = svgEl.getBoundingClientRect()
-    const width = Math.max(1, Math.round(bbox.width || contentSize.width || 800))
-    const height = Math.max(1, Math.round(bbox.height || contentSize.height || 800))
+    const diameterAttr = Number(svgEl.getAttribute('data-chart-diameter'))
+    const attrW = Number(svgEl.getAttribute('width'))
+    const attrH = Number(svgEl.getAttribute('height'))
+    const width = Math.max(1, Math.round(diameterAttr || attrW || contentSize.width || 800))
+    const height = Math.max(1, Math.round(diameterAttr || attrH || contentSize.height || 800))
     const dataUrl = svgToDataUrl(svgEl)
     const img = await loadImage(dataUrl)
     const canvas = document.createElement('canvas')
@@ -592,6 +725,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
     const ctx = canvas.getContext('2d')
     ctx.fillStyle = '#ffffff'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
+    // drawImage with natural size mapped to full canvas — viewBox already normalized
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
     const jpeg = await canvasToJpegBytes(canvas)
     return { jpeg, width: canvas.width, height: canvas.height }
@@ -659,7 +793,12 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
       }
 
       const pdfBlob = jpegToPdfBlob(raster.jpeg, raster.width, raster.height)
-      downloadBlob(pdfBlob, 'diagram.pdf')
+      const pdfNameBase = (fileName || openedDiagramId && `diagram-${openedDiagramId}` || 'diagram')
+        .toString()
+        .replace(/[\\/:*?"<>|]+/g, '_')
+        .replace(/\.pdf$/i, '')
+        .trim() || 'diagram'
+      downloadBlob(pdfBlob, `${pdfNameBase}.pdf`)
       showNotification('PDF скачан', 'success')
     } catch (err) {
       console.error('PDF export error:', err)
@@ -697,7 +836,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
 
       // Отправляем только столбцы, которые реально есть в открытом файле (на случай устаревшего состояния)
       const savedColumnsSet = new Set(savedColumns)
-      const hierarchyToSend = selectedColumns.filter(c => savedColumnsSet.has(c))
+      const hierarchyToSend = columnOrder.filter(c => selectedColumns.includes(c) && savedColumnsSet.has(c))
       if (hierarchyToSend.length === 0) {
         showNotification('Выберите столбцы из списка текущего файла. Часть выбранных столбцов в этом файле отсутствует.', 'warning')
         setLoading(false)
@@ -771,7 +910,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
       }
 
       const savedColumnsSet = new Set(savedColumns)
-      const hierarchyToSend = selectedColumns.filter(c => savedColumnsSet.has(c))
+      const hierarchyToSend = columnOrder.filter(c => selectedColumns.includes(c) && savedColumnsSet.has(c))
       if (hierarchyToSend.length === 0) {
         showNotification('Выберите столбцы из списка текущего файла. Часть выбранных столбцов в этом файле отсутствует.', 'warning')
         setLoading(false)
@@ -829,14 +968,15 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
       const diagramData = {
         data_file_id: fileId,
         name: currentDiagram.data.name, // Сохраняем оригинальное имя
-        hierarchy_columns: selectedColumns,
+        hierarchy_columns: columnOrder.filter(c => selectedColumns.includes(c)),
         value_column: valueColumn || null,
         use_gradient: useGradient,
         uniform_size: uniformSize,
         show_zero_values: showZeroValues,
         text_along_circumference: textAlongCircumference,
         show_full_text: showFullText,
-        dynamic_font_size: dynamicFontSize
+        dynamic_font_size: dynamicFontSize,
+        color_map: colorMap
       }
 
       await apiClient.put(`/diagrams/${openedDiagramId}`, diagramData)
@@ -867,24 +1007,25 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
       const diagramData = {
         data_file_id: fileId,
         name: diagramName,
-        hierarchy_columns: selectedColumns,
+        hierarchy_columns: columnOrder.filter(c => selectedColumns.includes(c)),
         value_column: valueColumn || null,
         use_gradient: useGradient,
         uniform_size: uniformSize,
         show_zero_values: showZeroValues,
         text_along_circumference: textAlongCircumference,
         show_full_text: showFullText,
-        dynamic_font_size: dynamicFontSize
+        dynamic_font_size: dynamicFontSize,
+        color_map: colorMap
       }
 
       const url = projectId 
         ? `/diagrams/?project_id=${projectId}`
         : '/diagrams/'
       
-      await apiClient.post(url, diagramData)
+      const created = await apiClient.post(url, diagramData)
 
       if (onChartSaved) {
-        onChartSaved()
+        await onChartSaved(created?.data)
       }
       showNotification('Новая диаграмма успешно сохранена!', 'success')
       setSaveAsNewModal(false)
@@ -1040,7 +1181,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
                       onChange={() => handleColumnToggle(col)}
                       disabled={isDragged}
                     />
-                    <span>{col}</span>
+                    <span title={col}>{sanitizeColumnLabel(col) || col}</span>
                   </label>
                   <div className="move-buttons">
                     <button
@@ -1089,11 +1230,11 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         <select
           value={valueColumn}
           onChange={(e) => setValueColumn(e.target.value)}
-          title="Опционально: выберите столбец с числовыми значениями от 0 до 100 для отображения процента заполнения секторов"
+          title="Опционально: выберите числовой столбец (например «Выполнено %») для размера секторов"
         >
           <option value="">Без значений</option>
-          {columns.map(col => (
-            <option key={col} value={col}>{col}</option>
+          {valueColumnOptions.map(({ value, label }) => (
+            <option key={value} value={value}>{label}</option>
           ))}
         </select>
 
@@ -1146,10 +1287,12 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
           <br />
           <div className="sector-colors">
             <div className="sector-colors-header">
-              <strong>Цвета секторов (1-й уровень)</strong>
+              <strong>
+                {l1Sectors.length === 1 ? 'Цвет корневого сектора' : 'Цвета секторов (корень / 1-й уровень)'}
+              </strong>
               <span 
                 style={{ cursor: 'help', color: '#666', fontSize: '14px' }}
-                title="Выберите цвет для каждого сектора первого уровня иерархии. При градиенте вложенные уровни осветляются от выбранного цвета."
+                title="Цвет корневого или первого уровня. При градиенте дочерние сектора осветляются от выбранного цвета."
               >
                 ℹ️
               </span>
@@ -1170,17 +1313,73 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
               </div>
             ) : (
               <div className="sector-colors-list">
-                {l1Sectors.map(name => (
+                {l1Sectors.map(name => {
+                  const hex = normalizeHex(colorMap[name] || '#1f77b4')
+                  return (
                   <label key={name} className="sector-color-row">
                     <input
                       type="color"
-                      value={colorMap[name] || '#1f77b4'}
+                      value={hex}
                       onChange={(e) => handleSectorColorChange(name, e.target.value)}
                       title={name}
                     />
+                    <input
+                      type="text"
+                      className="sector-color-hex"
+                      defaultValue={hex.toUpperCase()}
+                      key={`hex-${name}-${hex}`}
+                      onBlur={(e) => handleSectorColorChange(name, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          handleSectorColorChange(name, e.currentTarget.value)
+                          e.currentTarget.blur()
+                        }
+                      }}
+                      maxLength={7}
+                      spellCheck={false}
+                      title="HEX"
+                      aria-label={`HEX цвет для ${name}`}
+                    />
+                    <span className="sector-color-rgb" title="R / G / B">
+                      <label>R<input
+                        type="number" min={0} max={255}
+                        value={parseInt(hex.slice(1,3),16)}
+                        onChange={(e) => {
+                          const r = Math.max(0, Math.min(255, Number(e.target.value)||0))
+                          const g = parseInt(hex.slice(3,5),16)
+                          const b = parseInt(hex.slice(5,7),16)
+                          const to = (n) => n.toString(16).padStart(2,'0')
+                          handleSectorColorChange(name, `#${to(r)}${to(g)}${to(b)}`)
+                        }}
+                      /></label>
+                      <label>G<input
+                        type="number" min={0} max={255}
+                        value={parseInt(hex.slice(3,5),16)}
+                        onChange={(e) => {
+                          const r = parseInt(hex.slice(1,3),16)
+                          const g = Math.max(0, Math.min(255, Number(e.target.value)||0))
+                          const b = parseInt(hex.slice(5,7),16)
+                          const to = (n) => n.toString(16).padStart(2,'0')
+                          handleSectorColorChange(name, `#${to(r)}${to(g)}${to(b)}`)
+                        }}
+                      /></label>
+                      <label>B<input
+                        type="number" min={0} max={255}
+                        value={parseInt(hex.slice(5,7),16)}
+                        onChange={(e) => {
+                          const r = parseInt(hex.slice(1,3),16)
+                          const g = parseInt(hex.slice(3,5),16)
+                          const b = Math.max(0, Math.min(255, Number(e.target.value)||0))
+                          const to = (n) => n.toString(16).padStart(2,'0')
+                          handleSectorColorChange(name, `#${to(r)}${to(g)}${to(b)}`)
+                        }}
+                      /></label>
+                    </span>
                     <span className="sector-color-name" title={name}>{name}</span>
                   </label>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
@@ -1249,10 +1448,10 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         </div>
 
         <div className="chart-actions">
-          <button type="button" className="primary" onClick={handleRenderChart} disabled={loading}>
+          <button type="button" className="primary chart-build-btn" onClick={handleRenderChart} disabled={loading}>
             {loading ? 'Построение...' : 'Построить диаграмму'}
           </button>
-          <button type="button" className="d3-btn" onClick={handleRenderChartD3} disabled={loading}>
+          <button type="button" className="d3-btn chart-build-btn" onClick={handleRenderChartD3} disabled={loading}>
             {loading ? 'Построение...' : 'Диаграмма D3'}
           </button>
           {user && (chartHtml || d3Payload) && (

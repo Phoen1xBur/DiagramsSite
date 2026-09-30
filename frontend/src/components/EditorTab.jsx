@@ -63,9 +63,8 @@ function EditorTab({ data, columns, onDataUpdated, onExportCurrentFile, fileId, 
 
   // Синхронизируем внешнее состояние isModified
   useEffect(() => {
-    if (externalIsModified !== undefined && externalIsModified !== isModified) {
-      setIsModified(externalIsModified)
-    }
+    // After local save we set false; parent may still report dirty briefly — only adopt dirty=true.
+    if (externalIsModified === true) setIsModified(true)
   }, [externalIsModified])
 
   // Уведомляем родителя об изменении isModified
@@ -294,6 +293,7 @@ function EditorTab({ data, columns, onDataUpdated, onExportCurrentFile, fileId, 
   }
 
   const handleDeleteRow = (rowIdx) => {
+    if (!window.confirm('Удалить эту строку?')) return
     if (localData.length <= 1) return
     const newData = localData.filter((_, idx) => idx !== rowIdx)
     setLocalData(newData)
@@ -1226,7 +1226,7 @@ function EditorTab({ data, columns, onDataUpdated, onExportCurrentFile, fileId, 
                 }}
                 disabled={rowMenu.rowIdx === 0}
               >
-                🔼 Вверх
+                ↑ Вверх
               </button>
               <button
                 type="button"
@@ -1237,7 +1237,7 @@ function EditorTab({ data, columns, onDataUpdated, onExportCurrentFile, fileId, 
                 }}
                 disabled={rowMenu.rowIdx === localData.length - 1}
               >
-                🔽 Вниз
+                ↓ Вниз
               </button>
               <button
                 type="button"
@@ -1247,7 +1247,7 @@ function EditorTab({ data, columns, onDataUpdated, onExportCurrentFile, fileId, 
                   setRowMenu({ isOpen: false, rowIdx: null, x: 0, y: 0 })
                 }}
               >
-                📋 Копировать
+                Копировать
               </button>
               {localData.length > 1 && (
                 <button
@@ -1258,7 +1258,7 @@ function EditorTab({ data, columns, onDataUpdated, onExportCurrentFile, fileId, 
                     setRowMenu({ isOpen: false, rowIdx: null, x: 0, y: 0 })
                   }}
                 >
-                  ✕ Удалить
+                  Удалить
                 </button>
               )}
             </div>

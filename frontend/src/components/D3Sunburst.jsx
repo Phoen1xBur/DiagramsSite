@@ -2,9 +2,20 @@ import React, { useEffect, useRef } from 'react'
 import * as d3 from 'd3'
 
 const DEFAULT_FONT_SIZE = 16
+const FONT_SIZE_MIN = 11
+const FONT_SIZE_MAX = 28
 const LINE_HEIGHT = 1.15
 // Keep inner paddings minimal (Plotly-like tight layout).
 const TEXT_PADDING = 2
+
+const BAD_LABELS = new Set(['', 'undefined', 'null', 'n/a', 'na', 'none', 'nan', '<na>', '\u2014', '-'])
+
+function isBadLabel(n) {
+  if (n == null) return true
+  const s = String(n).trim()
+  if (!s) return true
+  return BAD_LABELS.has(s.toLowerCase())
+}
 
 function D3Sunburst({ payload, onSizeChange }) {
   const containerRef = useRef(null)
@@ -37,17 +48,23 @@ function D3Sunburst({ payload, onSizeChange }) {
       const maxSize = settings?.maxSize || 5000
       const showFullText = Boolean(settings?.showFullText)
       const textAlongCircumference = Boolean(settings?.textAlongCircumference)
+      const dynamicFontSize = Boolean(settings?.dynamicFontSize)
       const useGradient = settings?.useGradient !== false
       const colorMap = settings?.colorMap || {}
 
       const diameter = Math.min(maxSize, baseSize)
       const radius = diameter / 2
 
-      // Do NOT call .sort(null): Array.sort(null) throws TypeError in modern JS
-      // and left the chart area blank. Omitting sort preserves input/table order.
+      // Preserve input/table order (backend sets _order). Never size-sort.
       const root = d3
         .hierarchy(tree)
         .sum(d => (d.children?.length ? 0 : (d.value || 0)))
+        .sort((a, b) => {
+          const ao = a.data?._order
+          const bo = b.data?._order
+          if (ao != null && bo != null) return ao - bo
+          return 0
+        })
 
       // D3 angles: 0 at 12:00, increasing clockwise. Sibling order matches
       // the table / backend children array from 12:00 CW.
@@ -66,64 +83,90 @@ function D3Sunburst({ payload, onSizeChange }) {
         .attr('height', diameter)
         .style('width', `${diameter}px`)
         .style('height', `${diameter}px`)
-        .attr('viewBox', `${-radius} ${-radius} ${diameter} ${diameter}`)
+        // Positive origin viewBox — avoids PDF/canvas crop of negative-viewBox SVGs
+        .attr('viewBox', `0 0 ${diameter} ${diameter}`)
+        .attr('data-chart-diameter', String(diameter))
+        .style('cursor', 'grab')
+        .on('mousedown', () => svg.style('cursor', 'grabbing'))
+        .on('mouseup', () => svg.style('cursor', 'grab'))
+        .on('mouseleave', () => svg.style('cursor', 'grab'))
 
-      const g = svg.append('g')
+      const g = svg.append('g').attr('transform', `translate(${radius},${radius})`)
 
-      const fontSize = DEFAULT_FONT_SIZE
+      const baseFont = DEFAULT_FONT_SIZE
       const context = document.createElement('canvas').getContext('2d')
-      context.font = `${fontSize}px Arial, sans-serif`
 
-      const ellipsize = (text, maxWidth) => {
+      const measureWith = (fontPx, text) => {
+        context.font = `${fontPx}px Arial, sans-serif`
+        return context.measureText(String(text ?? '')).width
+      }
+
+      const ellipsize = (text, maxWidth, fontPx) => {
         const s = String(text ?? '')
         if (maxWidth <= 0) return ''
-        if (context.measureText(s).width <= maxWidth) return s
+        if (measureWith(fontPx, s) <= maxWidth) return s
         const ellipsis = '…'
-        if (context.measureText(ellipsis).width > maxWidth) return ''
+        if (measureWith(fontPx, ellipsis) > maxWidth) return ''
         let lo = 0
         let hi = s.length
         while (lo < hi) {
           const mid = Math.ceil((lo + hi) / 2)
           const candidate = s.slice(0, mid) + ellipsis
-          if (context.measureText(candidate).width <= maxWidth) lo = mid
+          if (measureWith(fontPx, candidate) <= maxWidth) lo = mid
           else hi = mid - 1
         }
         return s.slice(0, lo) + ellipsis
       }
 
-      const truncateNoEllipsis = (text, maxWidth) => {
+      const truncateNoEllipsis = (text, maxWidth, fontPx) => {
         const s = String(text ?? '')
         if (maxWidth <= 0) return ''
-        if (context.measureText(s).width <= maxWidth) return s
+        if (measureWith(fontPx, s) <= maxWidth) return s
         let lo = 0
         let hi = s.length
         while (lo < hi) {
           const mid = Math.ceil((lo + hi) / 2)
           const candidate = s.slice(0, mid)
-          if (context.measureText(candidate).width <= maxWidth) lo = mid
+          if (measureWith(fontPx, candidate) <= maxWidth) lo = mid
           else hi = mid - 1
         }
         return s.slice(0, lo)
       }
 
-      const computeLines = (node) => {
+      const fontForNode = (node) => {
+        if (!dynamicFontSize) return baseFont
+        const d = node.current || node
+        const ringPx = Math.max(1, d.y1 - d.y0)
+        const midR = (d.y0 + d.y1) / 2
+        const arcLen = Math.max(1, (d.x1 - d.x0) * midR)
+        // Bigger rings / arcs → larger font, hard-capped.
+        const byRing = ringPx * 0.42
+        const byArc = arcLen * 0.18
+        const raw = Math.min(byRing, byArc, FONT_SIZE_MAX)
+        return Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, Math.round(raw || baseFont)))
+      }
+
+      const computeLines = (node, fontPx) => {
         const d = node.current
         const midR = (d.y0 + d.y1) / 2
         const arcLen = (d.x1 - d.x0) * midR
         const ringPx = Math.max(1, d.y1 - d.y0)
-        // Cap width by both arc length and ring thickness so horizontal labels
-        // on side sectors cannot spill into neighboring rings (PDF captures it).
-        const maxWidth = Math.max(
-          0,
-          Math.min(arcLen, ringPx * (textAlongCircumference ? 2.2 : 1.35)) - TEXT_PADDING * 2
-        )
-        const words = String(node.data?.name || '').split(/\s+/).filter(Boolean)
+        // Cap width by both arc length and ring thickness so labels
+        // cannot spill into neighboring rings (PDF captures it).
+        const widthBudget = textAlongCircumference
+          ? Math.min(arcLen, ringPx * 2.4)
+          : Math.min(arcLen * 0.95, ringPx * 1.6)
+        const maxWidth = Math.max(0, widthBudget - TEXT_PADDING * 2)
+        const rawName = String(node.data?.name || '').trim()
+        if (!rawName || isBadLabel(rawName)) return []
+        const words = rawName.split(/\s+/).filter(Boolean)
         if (!words.length) return []
+
         const lines = []
         let current = ''
         for (const w of words) {
           const test = current ? `${current} ${w}` : w
-          if (!current || context.measureText(test).width <= maxWidth) current = test
+          if (!current || measureWith(fontPx, test) <= maxWidth) current = test
           else {
             lines.push(current)
             current = w
@@ -131,21 +174,26 @@ function D3Sunburst({ payload, onSizeChange }) {
         }
         if (current) lines.push(current)
 
-        // Even with showFullText, never paint text that cannot fit the sector —
-        // full label stays available in the tooltip.
+        // Always show at least one (possibly ellipsized) line when sector is large enough.
+        // showFullText allows a few more lines but never unlimited overflow.
         const hardMaxLines = showFullText
-          ? Math.max(2, Math.min(4, Math.floor((ringPx - TEXT_PADDING * 2) / (fontSize * LINE_HEIGHT))))
-          : Math.max(1, Math.floor((ringPx - TEXT_PADDING * 2) / (fontSize * LINE_HEIGHT)))
+          ? Math.max(1, Math.min(4, Math.floor((ringPx - TEXT_PADDING * 2) / (fontPx * LINE_HEIGHT))))
+          : Math.max(1, Math.min(2, Math.floor((ringPx - TEXT_PADDING * 2) / (fontPx * LINE_HEIGHT))))
         const overflow = lines.length > hardMaxLines
-        const trimmed = lines.slice(0, hardMaxLines)
+        const trimmed = lines.slice(0, Math.max(1, hardMaxLines))
 
         const out = trimmed.map((l, i) => {
           const isLast = i === trimmed.length - 1
-          if (!isLast) return truncateNoEllipsis(l, maxWidth)
-          const needsEllipsis = overflow || context.measureText(l).width > maxWidth
-          return needsEllipsis ? ellipsize(l, maxWidth) : truncateNoEllipsis(l, maxWidth)
+          if (!isLast) return truncateNoEllipsis(l, maxWidth, fontPx)
+          const needsEllipsis = overflow || measureWith(fontPx, l) > maxWidth
+          return needsEllipsis ? ellipsize(l, maxWidth, fontPx) : truncateNoEllipsis(l, maxWidth, fontPx)
         }).filter(Boolean)
 
+        // Fallback: if wrapping produced nothing but we have a name, force one ellipsized line.
+        if (!out.length && rawName && maxWidth > 4) {
+          const one = ellipsize(rawName, maxWidth, fontPx)
+          if (one) return [one]
+        }
         return out
       }
 
@@ -160,6 +208,27 @@ function D3Sunburst({ payload, onSizeChange }) {
         const gVal = Math.round(c.g + (255 - c.g) * ratio)
         const b = Math.round(c.b + (255 - c.b) * ratio)
         return `rgb(${r}, ${gVal}, ${b})`
+      }
+
+      // Resolve user color_map from any ancestor (root / L1), then palette.
+      // Depth gradient lightens from that base — never replaces custom colors.
+      const resolveBaseColor = (d) => {
+        let a = d
+        while (a) {
+          const name = a.data?.name
+          if (name && colorMap[name]) return { base: colorMap[name], depthFromBase: d.depth - a.depth }
+          a = a.parent
+        }
+        let l1 = d
+        while (l1 && l1.depth > 1) l1 = l1.parent
+        const key = l1?.data?.name || d.data?.name || ''
+        return { base: color(key), depthFromBase: l1 ? d.depth - l1.depth : Math.max(0, d.depth - 1) }
+      }
+
+      const fillFor = (d) => {
+        const { base, depthFromBase } = resolveBaseColor(d)
+        if (!useGradient || depthFromBase <= 0) return base
+        return blend(base, Math.min(0.6, 0.22 * depthFromBase))
       }
 
       const arc = d3
@@ -177,21 +246,26 @@ function D3Sunburst({ payload, onSizeChange }) {
       })
 
       const arcVisible = d => d.y1 > 0 && d.y0 >= 0 && d.x1 > d.x0
-      const labelVisible = (d) => {
+      const labelVisible = (d, fontPx) => {
         if (!arcVisible(d)) return false
         const midR = (d.y0 + d.y1) / 2
         const arcLen = (d.x1 - d.x0) * midR
         const thick = d.y1 - d.y0
-        return arcLen >= fontSize * 0.8 && thick >= fontSize * 0.9
+        // Lower thresholds so default (all toggles off) still shows labels on decent sectors.
+        return arcLen >= fontPx * 0.55 && thick >= fontPx * 0.65
       }
 
       const centerRing = radius / (root.height + 1)
       const centerG = g.append('g').attr('class', 'd3-sunburst-center')
+      const rootFill = (() => {
+        if (root.data?.name && colorMap[root.data.name]) return colorMap[root.data.name]
+        return '#ffffff'
+      })()
       const parentCircle = centerG
         .append('circle')
         .datum(root)
         .attr('r', centerRing * 0.95)
-        .attr('fill', '#ffffff')
+        .attr('fill', rootFill === '#ffffff' ? '#ffffff' : blend(rootFill, 0.85))
         .attr('stroke', '#e0e0e0')
         .attr('stroke-width', 1)
         .attr('pointer-events', 'all')
@@ -204,20 +278,27 @@ function D3Sunburst({ payload, onSizeChange }) {
         .attr('pointer-events', 'none')
         .style('font-weight', 700)
         .style('font-family', 'Arial, sans-serif')
-        .style('font-size', `${fontSize}px`)
+        .style('font-size', `${baseFont}px`)
 
       const setCenterLabel = (node) => {
-        const text = String(node?.data?.name || '')
+        let text = String(node?.data?.name || '').trim()
+        // Fallback when synthetic multi-child root has empty name
+        if (!text || isBadLabel(text)) {
+          const kids = node?.children || []
+          if (kids.length) text = `Всего: ${kids.length}`
+          else text = 'Корень'
+        }
         centerText.selectAll('tspan').remove()
         centerText.text('')
-        if (!text) return
+        const fontPx = Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, baseFont + (dynamicFontSize ? 2 : 0)))
+        centerText.style('font-size', `${fontPx}px`)
         const words = text.split(/\s+/).filter(Boolean)
         const maxWidth = centerRing * 1.55
         let line = ''
         const lines = []
         for (const w of words) {
           const test = line ? `${line} ${w}` : w
-          if (!line || context.measureText(test).width <= maxWidth) line = test
+          if (!line || measureWith(fontPx, test) <= maxWidth) line = test
           else {
             lines.push(line)
             line = w
@@ -225,17 +306,20 @@ function D3Sunburst({ payload, onSizeChange }) {
           if (lines.length >= 3) break
         }
         if (line && lines.length < 3) lines.push(line)
-        // Soft-truncate last line if we hit the cap
         const finalLines = lines.slice(0, 3).map((l, i, arr) => {
-          if (i < arr.length - 1) return truncateNoEllipsis(l, maxWidth)
-          const overflow = words.join(' ') !== arr.join(' ') || context.measureText(l).width > maxWidth
-          return overflow ? ellipsize(l, maxWidth) : l
-        })
-        if (finalLines.length <= 1) {
-          centerText.text(ellipsize(text, maxWidth))
+          if (i < arr.length - 1) return truncateNoEllipsis(l, maxWidth, fontPx)
+          const overflow = words.join(' ') !== arr.join(' ') || measureWith(fontPx, l) > maxWidth
+          return overflow ? ellipsize(l, maxWidth, fontPx) : l
+        }).filter(Boolean)
+        if (!finalLines.length) {
+          centerText.text(ellipsize(text, maxWidth, fontPx))
           return
         }
-        const lineDy = fontSize * 1.05
+        if (finalLines.length <= 1) {
+          centerText.text(finalLines[0] || ellipsize(text, maxWidth, fontPx))
+          return
+        }
+        const lineDy = fontPx * 1.05
         const startDy = -((finalLines.length - 1) / 2) * lineDy
         finalLines.forEach((l, i) => {
           centerText
@@ -249,23 +333,29 @@ function D3Sunburst({ payload, onSizeChange }) {
       setCenterLabel(root)
 
       const pathHoverText = (d) => {
-        const bad = new Set(['', 'undefined', 'null', 'n/a', 'na', 'none', 'nan', '<na>'])
         const names = d.ancestors()
           .map(a => a?.data?.name)
           .map(n => (n == null ? '' : String(n).trim()))
-          .filter(n => n && !bad.has(n.toLowerCase()))
+          .filter(n => n && !isBadLabel(n))
           .reverse()
+        if (!names.length) {
+          const self = String(d?.data?.name || '').trim()
+          return self && !isBadLabel(self) ? self : '—'
+        }
         return names.join(' → ')
       }
 
       const showTooltip = (event, d) => {
         const tip = tooltipRef.current
         if (!tip) return
-        tip.textContent = pathHoverText(d)
+        const path = pathHoverText(d)
+        tip.innerHTML = `<div><b>Путь:</b> ${path.replace(/</g, '&lt;')}</div>`
         tip.style.display = 'block'
         const pad = 12
-        const x = Math.min(event.clientX + pad, window.innerWidth - tip.offsetWidth - pad)
-        const y = Math.min(event.clientY + pad, window.innerHeight - tip.offsetHeight - pad)
+        const offsetX = 18
+        const offsetY = 22
+        const x = Math.min(event.clientX + offsetX, window.innerWidth - tip.offsetWidth - pad)
+        const y = Math.min(event.clientY + offsetY, window.innerHeight - tip.offsetHeight - pad)
         tip.style.left = `${Math.max(pad, x)}px`
         tip.style.top = `${Math.max(pad, y)}px`
       }
@@ -275,14 +365,7 @@ function D3Sunburst({ payload, onSizeChange }) {
         .selectAll('path')
         .data(nodes)
         .join('path')
-        .attr('fill', d => {
-          let a = d
-          while (a.depth > 1) a = a.parent
-          const base = colorMap[a.data.name] || color(a.data.name)
-          if (!useGradient || d.depth <= 1) return base
-          // Lighten nested rings so depth gradient is clearly visible
-          return blend(base, Math.min(0.6, 0.22 * (d.depth - 1)))
-        })
+        .attr('fill', d => fillFor(d))
         .attr('fill-opacity', d => (arcVisible(d.current) ? (d.children ? 0.7 : 0.55) : 0))
         .attr('stroke', 'none')
         .attr('stroke-width', 0)
@@ -299,28 +382,27 @@ function D3Sunburst({ payload, onSizeChange }) {
         .attr('text-anchor', 'middle')
         .style('user-select', 'none')
         .style('font-family', 'Arial, sans-serif')
-        .style('font-size', `${fontSize}px`)
 
-      // Place label at the geometric center of the annular sector.
+      // Tangential (along arc) — used when "Надпись по окружности" is on.
       const labelTransformTangential = (d) => {
         const midAngle = (d.x0 + d.x1) / 2
         const midR = (d.y0 + d.y1) / 2
         const deg = (midAngle * 180) / Math.PI
-        // Flip text on the lower half so it stays upright/readable.
         const flip = midAngle > Math.PI
         return `rotate(${deg - 90}) translate(${midR},0) rotate(${flip ? 180 : 0})`
       }
 
-      const defs = svg.append('defs')
-
-      const labelAtMid = (d) => {
-        // Explicit mid-angle / mid-radius (avoids inner-radius bias on wide slices).
+      // Outward radial — preferred default (readable, less awkward than horizontal).
+      const labelTransformRadial = (d) => {
         const midAngle = (d.x0 + d.x1) / 2
         const midR = (d.y0 + d.y1) / 2
-        const cx = Math.sin(midAngle) * midR
-        const cy = -Math.cos(midAngle) * midR
-        return [cx, cy]
+        const deg = (midAngle * 180) / Math.PI
+        // Flip on the left half so text is not upside-down.
+        const flip = midAngle > Math.PI / 2 && midAngle < (3 * Math.PI) / 2
+        return `rotate(${deg - 90}) translate(${midR},0) rotate(${flip ? 90 : -90})`
       }
+
+      const defs = svg.append('defs')
 
       const renderLabels = () => {
         labelG.selectAll('*').remove()
@@ -332,38 +414,32 @@ function D3Sunburst({ payload, onSizeChange }) {
             .attr('d', arc(node.current))
         })
         nodes.forEach((node) => {
-          if (!labelVisible(node.current)) return
-          const lines = computeLines(node)
+          const fontPx = fontForNode(node)
+          if (!labelVisible(node.current, fontPx)) return
+          const lines = computeLines(node, fontPx)
           if (!lines.length) return
 
           const dCur = node.current
-          // Clip on a <g> (more reliable than clip-path on <text>/tspan).
+          // Clip on a <g> so curved/radial transforms stay inside the sector.
           const clipped = labelG
             .append('g')
             .attr('clip-path', `url(#d3-clip-${node._idx})`)
 
-          let t
-          if (textAlongCircumference) {
-            t = clipped
-              .append('text')
-              .attr('transform', labelTransformTangential(dCur))
-              .attr('dominant-baseline', 'middle')
-          } else {
-            const [cx, cy] = labelAtMid(dCur)
-            t = clipped
-              .append('text')
-              .attr('transform', `translate(${cx},${cy})`)
-              .attr('dominant-baseline', 'middle')
-          }
-
-          t.attr('text-anchor', 'middle')
+          const t = clipped
+            .append('text')
+            .attr('transform', textAlongCircumference
+              ? labelTransformTangential(dCur)
+              : labelTransformRadial(dCur))
+            .attr('dominant-baseline', 'middle')
+            .attr('text-anchor', 'middle')
             .attr('fill', '#111')
+            .style('font-size', `${fontPx}px`)
             .style('paint-order', 'stroke')
             .style('stroke', '#fff')
             .style('stroke-width', 2)
             .style('stroke-linejoin', 'round')
 
-          const lineDy = fontSize * LINE_HEIGHT
+          const lineDy = fontPx * LINE_HEIGHT
           const startDy = -((lines.length - 1) / 2) * lineDy
           lines.forEach((l, i) => {
             t.append('tspan')

@@ -507,6 +507,7 @@ function ProjectDetail() {
             </div>
           )}
           <FileTab
+            hasProjectFiles={projectFiles.length > 0}
             onFileLoaded={handleFileLoaded}
             currentData={currentData}
             columns={columns}
@@ -635,8 +636,11 @@ function ProjectDetail() {
           projectId={parseInt(projectId)}
           openedDiagramId={openedDiagramId}
           fileName={projectFiles.find(f => f.id === fileId)?.original_filename || 'Загрузка...'}
-          onChartSaved={() => {
-            loadProject() // Обновляем список диаграмм после сохранения
+          onChartSaved={async (created) => {
+            if (created?.id) {
+              setProjectDiagrams(prev => prev.some(d => d.id === created.id) ? prev : [...prev, created])
+            }
+            await loadProject()
           }}
         />
       )}

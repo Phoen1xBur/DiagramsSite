@@ -44,7 +44,8 @@ def _is_blank_hierarchy_value(val) -> bool:
     except Exception:
         pass
     s = str(val).strip().lower()
-    return s in ("", "nan", "none", "nat", "n/a", "na", "<na>")
+    # Include legacy em-dash / hyphen placeholders so they collapse away.
+    return s in ("", "nan", "none", "nat", "n/a", "na", "<na>", "-", "—")
 
 
 def _clean_hierarchy_cell(val):
@@ -65,13 +66,11 @@ def _truncate_hierarchy_paths(df, hierarchy_cols):
 
     Rules:
     - Trim whitespace/tabs on every cell.
-    - Terminal blanks (nothing filled after): null that cell and every deeper
-      level (no synthetic N/A leaves).
-    - Mid-gap blanks (a later hierarchy column is filled): keep depth by
-      inserting HIERARCHY_GAP_PLACEHOLDER so later values are not wiped and do
-      not collapse onto a shallower ring. Column order may put e.g. Задачи
-      before Ценности Направления; blank Задачи must not erase a filled
-      Ценности Направления.
+    - Blank cells are omitted (collapsed): filled labels shift left so empty
+      Excel cells do not create placeholder / hyphen outer rings.
+    - Trailing positions past the last filled label stay null (no N/A flood).
+    - Mid-gap blanks no longer wipe later values (compact instead of truncate
+      or insert HIERARCHY_GAP_PLACEHOLDER rings).
     """
     cols = [c for c in (hierarchy_cols or []) if c in getattr(df, "columns", [])]
     if not cols or df is None or getattr(df, "empty", True):
@@ -79,22 +78,13 @@ def _truncate_hierarchy_paths(df, hierarchy_cols):
 
     df = df.copy()
     for idx in list(df.index):
-        cleaned = [_clean_hierarchy_cell(df.at[idx, col]) for col in cols]
-        last_filled = -1
-        for i, val in enumerate(cleaned):
-            if val is not None:
-                last_filled = i
-        if last_filled < 0:
-            for col in cols:
-                df.at[idx, col] = None
-            continue
+        filled = []
+        for col in cols:
+            val = _clean_hierarchy_cell(df.at[idx, col])
+            if val is not None and val != HIERARCHY_GAP_PLACEHOLDER:
+                filled.append(val)
         for i, col in enumerate(cols):
-            if i > last_filled:
-                df.at[idx, col] = None
-            elif cleaned[i] is None:
-                df.at[idx, col] = HIERARCHY_GAP_PLACEHOLDER
-            else:
-                df.at[idx, col] = cleaned[i]
+            df.at[idx, col] = filled[i] if i < len(filled) else None
     df = df[df[cols[0]].notna()].copy()
     return df.reset_index(drop=True)
 
@@ -376,11 +366,11 @@ def create_sunburst_chart(
         if value_col:
             # Всегда показываем реальные значения из custom_data (где 0 это 0, а не 1)
             if original_values_col:
-                hover_template = '<b>%{label}</b><br><b>Путь:</b> %{parent}<br><b>Значение:</b> %{customdata[0]}<br><extra></extra>'
+                hover_template = '<b>Путь:</b> %{hovertext}<br><b>Значение:</b> %{customdata[0]}<br><extra></extra>'
             else:
-                hover_template = '<b>%{label}</b><br><b>Путь:</b> %{parent}<br><b>Значение:</b> %{value}<br><extra></extra>'
+                hover_template = '<b>Путь:</b> %{hovertext}<br><b>Значение:</b> %{value}<br><extra></extra>'
         else:
-            hover_template = '<b>%{label}</b><br><b>Путь:</b> %{parent}<br><extra></extra>'
+            hover_template = '<b>Путь:</b> %{hovertext}<br><extra></extra>'
         
         # Количество уровней иерархии (колец)
         levels_count = max(1, len(hierarchy_cols))
@@ -795,11 +785,44 @@ def create_sunburst_chart(
         # Переносы строк через text + textinfo="text"; центровка — скриптом в HTML
         text_for_plot = wrapped_labels if wrapped_labels else None
 
+        
+        # Build non-blank hover paths from ids/parents (fix empty «Путь:»).
+        try:
+            tr0 = fig.data[0]
+            ids_list = list(tr0.ids) if getattr(tr0, "ids", None) is not None else []
+            parents_list = list(tr0.parents) if getattr(tr0, "parents", None) is not None else []
+            labels_list = list(tr0.labels) if getattr(tr0, "labels", None) is not None else []
+            id_to_label = {i: ("" if lab is None else str(lab).strip()) for i, lab in zip(ids_list, labels_list)}
+            id_to_parent = {i: p for i, p in zip(ids_list, parents_list)}
+            bad = {"", "undefined", "null", "n/a", "na", "none", "nan", "<na>", "-", "—"}
+            path_labels = []
+            for nid, lab in zip(ids_list, labels_list):
+                parts = []
+                cur = nid
+                guard = 0
+                while cur is not None and cur != "" and guard < 64:
+                    guard += 1
+                    name = id_to_label.get(cur, "")
+                    if name and name.strip().lower() not in bad:
+                        parts.append(name.strip())
+                    cur = id_to_parent.get(cur)
+                    if cur in (None, ""):
+                        break
+                parts.reverse()
+                if not parts:
+                    fallback = "" if lab is None else str(lab).strip()
+                    parts = [fallback] if fallback and fallback.lower() not in bad else ["—"]
+                path_labels.append(_wrap_hover_text(" → ".join(parts), max_chars=42))
+            if path_labels:
+                raw_labels = path_labels
+        except Exception:
+            logger.exception("Failed to build sunburst hover paths")
+
         fig.update_traces(
             text=text_for_plot if text_for_plot else None,
             textinfo="text",
             hovertext=raw_labels if raw_labels else None,
-            hovertemplate=hover_template.replace('%{label}', '%{hovertext}') if raw_labels else hover_template,
+            hovertemplate=hover_template if raw_labels else hover_template.replace('%{hovertext}', '%{label}'),
             textfont=text_font_config,
             insidetextorientation=text_orientation,
             branchvalues=branchvalues_mode,
@@ -925,7 +948,7 @@ def build_d3_payload(
         children_map = node.setdefault("_children_map", {})
         child = children_map.get(name)
         if not child:
-            child = {"name": name, "children": [], "value": 0}
+            child = {"name": name, "children": [], "value": 0, "_order": len(node["children"])}
             children_map[name] = child
             node["children"].append(child)
         return child
@@ -960,14 +983,10 @@ def build_d3_payload(
 
     finalize(root)
 
-    # If there is only one top-level value, make it the visual root.
-    # This matches Plotly behavior where the center shows the first hierarchy value,
-    # not the column name.
-    if isinstance(root.get("children"), list) and len(root["children"]) == 1:
-        root = root["children"][0]
-    else:
-        # Do not show a synthetic root label; keep center neutral.
-        root["name"] = ""
+    # Never promote a sole top-level child into the root — that previously
+    # skipped spreadsheet columns such as «Цель/Ценности проекта» and made the
+    # chart ignore user hierarchy selection for the top levels.
+    root["name"] = ""
 
     palette = [
         "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
