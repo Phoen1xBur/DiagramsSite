@@ -12,6 +12,8 @@ import { loadAnonymousData, saveAnonymousData, getUserToken, getUserData, clearU
 import apiClient from './api/client'
 import './App.css'
 
+const gitSha = import.meta.env.VITE_GIT_SHA || 'dev'
+
 function AppContent() {
   const { showNotification } = useNotification()
   const navigate = useNavigate()
@@ -413,6 +415,9 @@ function App() {
           <Route path="/project/:projectId" element={<ProjectDetailRoute />} />
           <Route path="/admin" element={<AdminPanel />} />
         </Routes>
+        <span className="git-sha" title={`Build ${gitSha}`}>
+          build {gitSha}
+        </span>
       </Router>
     </NotificationProvider>
   )

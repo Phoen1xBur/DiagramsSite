@@ -1,9 +1,26 @@
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+const getGitSha = () => {
+  const configuredSha = process.env.VITE_GIT_SHA?.trim()
+  if (configuredSha) return configuredSha
+
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: __dirname,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).toString().trim() || 'dev'
+  } catch {
+    return 'dev'
+  }
+}
+
+const gitSha = getGitSha()
 
 // Определяем режим работы из переменной окружения
 // Поддерживаем строковые значения 'True', 'true', 'False', 'false' и булевы значения
@@ -25,6 +42,7 @@ export default defineConfig({
   },
   define: {
     global: 'globalThis',
+    'import.meta.env.VITE_GIT_SHA': JSON.stringify(gitSha),
   },
   optimizeDeps: {
     include: ['buffer', 'plotly.js', 'react-plotly.js', 'd3'],
