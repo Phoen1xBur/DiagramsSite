@@ -19,8 +19,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - sunburst_network
     restart: always
 
   redis:
@@ -37,8 +35,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - sunburst_network
     restart: always
 
   backend:
@@ -65,8 +61,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    networks:
-      - sunburst_network
     restart: always
 
   frontend:
@@ -90,8 +84,6 @@ services:
       - frontend_node_modules:${FRONTEND_MOUNT_PATH:-/app}/node_modules
     depends_on:
       - backend
-    networks:
-      - sunburst_network
     restart: always
 
 volumes:
@@ -99,8 +91,4 @@ volumes:
   redis_data:
   uploads_data:
   frontend_node_modules:
-
-networks:
-  sunburst_network:
-    driver: bridge
 
