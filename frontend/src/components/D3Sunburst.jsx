@@ -174,11 +174,12 @@ function D3Sunburst({ payload, onSizeChange }) {
         }
         if (current) lines.push(current)
 
-        // Always show at least one (possibly ellipsized) line when sector is large enough.
-        // showFullText allows a few more lines but never unlimited overflow.
-        const hardMaxLines = showFullText
-          ? Math.max(1, Math.min(4, Math.floor((ringPx - TEXT_PADDING * 2) / (fontPx * LINE_HEIGHT))))
-          : Math.max(1, Math.min(2, Math.floor((ringPx - TEXT_PADDING * 2) / (fontPx * LINE_HEIGHT))))
+        // In full-text mode keep every wrapped line. The label group is clipped
+        // to the sector path below, so overflow is clipped rather than replaced
+        // with an ellipsis. The normal mode keeps the compact two-line behavior.
+        if (showFullText) return lines
+
+        const hardMaxLines = Math.max(1, Math.min(2, Math.floor((ringPx - TEXT_PADDING * 2) / (fontPx * LINE_HEIGHT))))
         const overflow = lines.length > hardMaxLines
         const trimmed = lines.slice(0, Math.max(1, hardMaxLines))
 
