@@ -356,8 +356,9 @@ CENTER_LABELS_JS = r"""
 })();
 """
 
-# Horizontal (all toggles off) mode only: Plotly hides labels that do not fit
-# at uniformtext.minsize, leaving empty cells. Re-wrap / shorten them instead.
+# Truncated modes (horizontal and "along circumference"): Plotly hides labels
+# that do not fit at uniformtext.minsize, leaving empty cells. Re-wrap /
+# shorten them instead. Tangential labels keep Plotly's arc rotation.
 FILL_HIDDEN_LABELS_JS = r"""
 (function () {
   // Plotly hides (scale(0)) sunburst labels that cannot fit their cell at
@@ -370,7 +371,10 @@ FILL_HIDDEN_LABELS_JS = r"""
   function inside(path, svg, x, y) { try { return path.isPointInFill(pt(svg, x, y)); } catch (e) { return false; } }
   function parseT(tr) {
     var m = /translate\(\s*([-\d.e]+)[ ,]+([-\d.e]+)\s*\)\s*scale\(\s*0\s*\)/.exec(tr || '');
-    return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : null;
+    if (!m) return null;
+    // Tangential ("along circumference") labels carry rotate(a) after scale(0).
+    var r = /rotate\(\s*([-\d.e]+)/.exec(tr || '');
+    return { x: parseFloat(m[1]), y: parseFloat(m[2]), rot: r ? parseFloat(r[1]) : 0 };
   }
   function setLines(text, lines) {
     while (text.firstChild) text.removeChild(text.firstChild);
@@ -413,7 +417,10 @@ FILL_HIDDEN_LABELS_JS = r"""
     }
     return out;
   }
-  function tryPlace(svg, path, text, lines, scale, cands) {
+  function tryPlace(svg, path, text, lines, scale, cands, rot) {
+    rot = rot || 0;
+    var ra = rot * Math.PI / 180, ca = Math.cos(ra), sa = Math.sin(ra);
+    var rs = Math.abs(rot) > 1e-4 ? 'rotate(' + rot.toFixed(3) + ')' : '';
     setLines(text, lines);
     var bb; try { bb = text.getBBox(); } catch (e) { return false; }
     if (!bb || !bb.width) return false;
@@ -425,10 +432,11 @@ FILL_HIDDEN_LABELS_JS = r"""
     for (var c = 0; c < cands.length; c++) {
       var px = cands[c][0], py = cands[c][1], ok = true;
       for (var i = 0; i < corners.length && ok; i++) {
-        ok = inside(path, svg, px + (corners[i][0] - bcx) * scale, py + (corners[i][1] - bcy) * scale);
+        var dx = (corners[i][0] - bcx) * scale, dy = (corners[i][1] - bcy) * scale;
+        ok = inside(path, svg, px + dx * ca - dy * sa, py + dx * sa + dy * ca);
       }
       if (ok) {
-        text.setAttribute('transform', 'translate(' + px.toFixed(2) + ',' + py.toFixed(2) + ')scale(' + scale.toFixed(4) +
+        text.setAttribute('transform', 'translate(' + px.toFixed(2) + ',' + py.toFixed(2) + ')' + rs + 'scale(' + scale.toFixed(4) +
           ')translate(' + (-bcx).toFixed(2) + ',' + (-bcy).toFixed(2) + ')');
         return true;
       }
@@ -483,9 +491,9 @@ FILL_HIDDEN_LABELS_JS = r"""
       var done = false;
       for (var si = 0; si < scales.length && !done; si++) {
         var sc = scales[si];
-        for (var n = 1; n <= 5 && !done; n++) done = tryPlace(svg, path, text, wrap(words, n), sc, cands);
+        for (var n = 1; n <= 5 && !done; n++) done = tryPlace(svg, path, text, wrap(words, n), sc, cands, p0.rot);
         for (var mc = Math.min(raw.length, 24); mc >= 3 && !done; mc -= 1) {
-          for (var k = 1; k <= 3 && !done; k++) done = tryPlace(svg, path, text, shortened(words, k, mc), sc, cands);
+          for (var k = 1; k <= 3 && !done; k++) done = tryPlace(svg, path, text, shortened(words, k, mc), sc, cands, p0.rot);
         }
       }
       if (!done) {
@@ -493,10 +501,11 @@ FILL_HIDDEN_LABELS_JS = r"""
         setLines(text, shortened(words, 1, 3));
         var bb = text.getBBox();
         var c0 = cands[0];
-        text.setAttribute('transform', 'translate(' + c0[0].toFixed(2) + ',' + c0[1].toFixed(2) + ')scale(' + minScale.toFixed(4) +
+        text.setAttribute('transform', 'translate(' + c0[0].toFixed(2) + ',' + c0[1].toFixed(2) + ')' +
+          (Math.abs(p0.rot) > 1e-4 ? 'rotate(' + p0.rot.toFixed(3) + ')' : '') + 'scale(' + minScale.toFixed(4) +
           ')translate(' + (-(bb.x + bb.width / 2)).toFixed(2) + ',' + (-(bb.y + bb.height / 2)).toFixed(2) + ')');
       }
-      text.setAttribute('data-filled', '1');
+      text.setAttribute('data-filled', done ? '1' : 'sliver');
     }
   };
 })();
@@ -1209,7 +1218,9 @@ def create_sunburst_chart(
             f'{hover_css}<meta name="plotly-chart-size" content="{chart_size},{chart_size}"></head>',
         )
         label_scripts = CENTER_LABELS_JS
-        if not show_full_text and not text_along_circumference and not font_sizes:
+        # Truncated modes only (both horizontal and along-circumference):
+        # Plotly hides labels below uniformtext.minsize -> fill them in.
+        if not show_full_text and not font_sizes:
             label_scripts = FILL_HIDDEN_LABELS_JS + "\n" + CENTER_LABELS_JS
         rotate_flag = "false" if text_orientation == "horizontal" else "true"
         label_scripts = f"window.__sunburstLabelsRotate = {rotate_flag};\n" + label_scripts
