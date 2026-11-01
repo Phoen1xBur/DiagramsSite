@@ -112,9 +112,6 @@ function D3Sunburst({
         .attr('viewBox', `0 0 ${diameter} ${diameter}`)
         .attr('data-chart-diameter', String(diameter))
         .style('cursor', 'grab')
-        .on('mousedown', () => svg.style('cursor', 'grabbing'))
-        .on('mouseup', () => svg.style('cursor', 'grab'))
-        .on('mouseleave', () => svg.style('cursor', 'grab'))
 
       const g = svg.append('g').attr('transform', `translate(${radius},${radius})`)
 
@@ -384,7 +381,7 @@ function D3Sunburst({
 
       const arcVisible = d => d.y1 > 0 && d.y0 >= 0 && d.x1 > d.x0
 
-      const centerRing = radius / (root.height + 1)
+      let centerRing = radius / (root.height + 1)
       const centerG = g.append('g').attr('class', 'd3-sunburst-center')
       // Centre disk is flush with the first ring and tinted like the slices
       // (slices are drawn at ~0.7 opacity on white, i.e. blend 0.3) so it
@@ -513,6 +510,7 @@ function D3Sunburst({
         .attr('stroke', 'none')
         .attr('stroke-width', 0)
         .attr('d', d => arc(d.current))
+        .attr('pointer-events', d => (arcVisible(d.current) ? 'auto' : 'none'))
         .on('mousemove', function (event, d) {
           showTooltip(event, d)
         })
@@ -594,27 +592,44 @@ function D3Sunburst({
 
       renderLabels()
 
+      // ---- Navigation (zoom into a petal) ----
+      // The clicked node p becomes the centre disk; its descendants fill the
+      // remaining radius ring by ring. Everything else collapses (invisible,
+      // no pointer events) so clicks never hit hidden arcs.
+      let focus = root
       const clicked = (event, p) => {
         if (event) event.stopPropagation()
+        if (!p) return
+        if (p !== root && !p.children) return
         hideTooltip()
+        focus = p
         parentCircle.datum(p.parent || root)
         parentCircle.attr('fill', centerFillFor(p))
-        setCenterLabel(p)
 
-        const k = radius / (p.y1 - p.y0)
+        const ring = radius / ((p.height || 0) + 1)
+        centerRing = ring
+        setCenterLabel(p)
+        const span = Math.max(1e-9, p.x1 - p.x0)
         root.each(d => {
+          let isDesc = false
+          for (let a = d.parent; a; a = a.parent) {
+            if (a === p) { isDesc = true; break }
+          }
+          const y0 = isDesc ? (d.depth - p.depth) * ring : 0
           d.target = {
-            x0: Math.max(0, Math.min(1, (d.x0 - p.x0) / (p.x1 - p.x0))) * 2 * Math.PI,
-            x1: Math.max(0, Math.min(1, (d.x1 - p.x0) / (p.x1 - p.x0))) * 2 * Math.PI,
-            y0: Math.max(0, (d.y0 - p.y0) * k),
-            y1: Math.max(0, (d.y1 - p.y0) * k)
+            x0: Math.max(0, Math.min(1, (d.x0 - p.x0) / span)) * 2 * Math.PI,
+            x1: Math.max(0, Math.min(1, (d.x1 - p.x0) / span)) * 2 * Math.PI,
+            y0,
+            y1: isDesc ? y0 + ring : 0,
           }
         })
 
-        const t = g.transition().duration(750)
+        const t = g.transition().duration(600)
         labelG.style('opacity', 0)
+        parentCircle.transition(t).attr('r', Math.max(1, ring - 1))
 
         path
+          .attr('pointer-events', 'none')
           .transition(t)
           .attrTween('d', d => {
             const i = d3.interpolate(d.current, d.target)
@@ -626,14 +641,98 @@ function D3Sunburst({
           .attr('fill-opacity', d => (arcVisible(d.target) ? (d.children ? 0.7 : 0.55) : 0))
 
         t.on('end', () => {
+          root.each(d => { d.current = d.target })
+          path.attr('pointer-events', d => (arcVisible(d.current) ? 'auto' : 'none'))
           renderLabels()
           labelG.style('opacity', 1)
         })
       }
 
-      path.filter(d => d.children).style('cursor', 'pointer').on('click', clicked)
-      parentCircle.on('click', (event) => clicked(event, parentCircle.datum()))
-      svg.on('click', () => clicked(null, root))
+      // ---- Click vs drag ----
+      // Mouse drag pans the scrollable chart area; a press that moved more
+      // than DRAG_THRESHOLD px is a drag and never triggers navigation.
+      const DRAG_THRESHOLD = 5
+      const svgNode = svg.node()
+      const findScroller = (el) => {
+        for (let n = el?.parentElement; n; n = n.parentElement) {
+          const cs = window.getComputedStyle(n)
+          const ox = cs.overflowX
+          const oy = cs.overflowY
+          const canX = (ox === 'auto' || ox === 'scroll') && n.scrollWidth > n.clientWidth
+          const canY = (oy === 'auto' || oy === 'scroll') && n.scrollHeight > n.clientHeight
+          if (canX || canY) return n
+        }
+        return document.scrollingElement || document.documentElement
+      }
+      let drag = null
+      let suppressClick = false
+      const onPointerDown = (ev) => {
+        if (ev.button !== 0) return
+        drag = {
+          x: ev.clientX,
+          y: ev.clientY,
+          scroller: findScroller(svgNode),
+          moved: false,
+          id: ev.pointerId,
+        }
+        drag.left = drag.scroller.scrollLeft
+        drag.top = drag.scroller.scrollTop
+        suppressClick = false
+      }
+      const onPointerMove = (ev) => {
+        if (!drag || ev.pointerId !== drag.id) return
+        const dx = ev.clientX - drag.x
+        const dy = ev.clientY - drag.y
+        if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return
+        if (!drag.moved) {
+          drag.moved = true
+          hideTooltip()
+          svg.style('cursor', 'grabbing')
+          try { svgNode.setPointerCapture(ev.pointerId) } catch (_) { /* ignore */ }
+        }
+        drag.scroller.scrollLeft = drag.left - dx
+        drag.scroller.scrollTop = drag.top - dy
+        ev.preventDefault()
+      }
+      const onPointerUp = (ev) => {
+        if (!drag || ev.pointerId !== drag.id) return
+        if (drag.moved) suppressClick = true
+        try { svgNode.releasePointerCapture(ev.pointerId) } catch (_) { /* ignore */ }
+        drag = null
+        svg.style('cursor', 'grab')
+      }
+      // Capture phase: swallow the click that ends a drag before d3 handlers.
+      const onClickCapture = (ev) => {
+        if (suppressClick) {
+          suppressClick = false
+          ev.stopPropagation()
+          ev.preventDefault()
+        }
+      }
+      const onDragStart = (ev) => ev.preventDefault()
+      svgNode.addEventListener('pointerdown', onPointerDown)
+      svgNode.addEventListener('pointermove', onPointerMove)
+      svgNode.addEventListener('pointerup', onPointerUp)
+      svgNode.addEventListener('pointercancel', onPointerUp)
+      svgNode.addEventListener('click', onClickCapture, true)
+      svgNode.addEventListener('dragstart', onDragStart)
+
+      path.style('cursor', d => (d.children ? 'pointer' : 'grab'))
+      // Petal with children -> zoom in. Leaf -> no-op (must not reset view).
+      path.on('click', (event, d) => {
+        event.stopPropagation()
+        if (d.children) clicked(event, d)
+      })
+      parentCircle.style('cursor', 'pointer')
+      // Centre -> one level up.
+      parentCircle.on('click', (event) => {
+        event.stopPropagation()
+        if (focus !== root) clicked(event, focus.parent || root)
+      })
+      // Empty background -> back to the root view.
+      svg.on('click', (event) => {
+        if (event.target === svgNode && focus !== root) clicked(null, root)
+      })
     } catch (err) {
       console.error('D3 sunburst render failed:', err)
       container.innerHTML = ''
