@@ -48,7 +48,19 @@ function D3Sunburst({
     }
 
     try {
-      const { tree, settings } = payload
+      const { tree: rawTree, settings } = payload
+      // A nameless synthetic root with a single top-level child used to render
+      // as an empty white disk with «Всего: 1». Show that child in the centre
+      // instead (same as Plotly, where the sole top node is the centre disk);
+      // its column value stays visible and the rings get more room.
+      const collapsedRoot = Boolean(
+        isBadLabel(rawTree?.name)
+        && Array.isArray(rawTree?.children)
+        && rawTree.children.length === 1
+        && Array.isArray(rawTree.children[0]?.children)
+        && rawTree.children[0].children.length > 0
+      )
+      const tree = collapsedRoot ? rawTree.children[0] : rawTree
       const palette = settings?.palette || []
       const baseSize = settings?.baseSize || 800
       const maxSize = settings?.maxSize || 5000
@@ -146,78 +158,185 @@ function D3Sunburst({
         return s.slice(0, lo)
       }
 
-      const fontForNode = (node) => {
-        if (!dynamicFontSize) return baseFont
-        const d = node.current || node
-        const ringPx = Math.max(1, d.y1 - d.y0)
-        const midR = (d.y0 + d.y1) / 2
-        const arcLen = Math.max(1, (d.x1 - d.x0) * midR)
-        // Bigger rings / arcs → larger font, hard-capped.
-        const byRing = ringPx * 0.42
-        const byArc = arcLen * 0.18
-        const raw = Math.min(byRing, byArc, FONT_SIZE_MAX)
-        return Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, Math.round(raw || baseFont)))
+      // ---- Label layout: every label is fitted inside its own cell ----
+      // A cell is an annular sector. Labels are centred on the cell middle
+      // (radial mid of the ring + angular mid of the sector), wrapped and,
+      // if needed, shrunk so the whole block stays inside the sector.
+      const FULL_TEXT_FONT_MIN = 7
+      const wordWidthCache = new Map()
+      const wordWidth = (fontPx, w) => {
+        const k = `${fontPx}|${w}`
+        let v = wordWidthCache.get(k)
+        if (v == null) {
+          v = measureWith(fontPx, w)
+          wordWidthCache.set(k, v)
+        }
+        return v
       }
 
-      const computeLines = (node, fontPx) => {
-        const d = node.current
-        const midR = (d.y0 + d.y1) / 2
-        const arcLen = (d.x1 - d.x0) * midR
-        const ringPx = Math.max(1, d.y1 - d.y0)
-        // Cap width by both arc length and ring thickness so labels
-        // cannot spill into neighboring rings (PDF captures it).
-        // Full-text: use the full arc length so words wrap along the ring
-        // instead of being force-truncated. Normal mode keeps the tight budget.
-        const widthBudget = showFullText
-          ? (textAlongCircumference ? arcLen : Math.max(arcLen * 0.98, ringPx * 2.2))
-          : (textAlongCircumference
-            ? Math.min(arcLen, ringPx * 2.4)
-            : Math.min(arcLen * 0.95, ringPx * 1.6))
-        const maxWidth = Math.max(0, widthBudget - TEXT_PADDING * 2)
-        const rawName = String(node.data?.name || '').trim()
-        if (!rawName || isBadLabel(rawName)) return []
-        const words = rawName.split(/\s+/).filter(Boolean)
-        if (!words.length) return []
-
+      const wrapWords = (words, fontPx, maxWidth) => {
+        const space = wordWidth(fontPx, ' ')
         const lines = []
-        let current = ''
+        let cur = ''
+        let curW = 0
+        let maxLineW = 0
         for (const w of words) {
-          const test = current ? `${current} ${w}` : w
-          if (!current || measureWith(fontPx, test) <= maxWidth) current = test
-          else {
-            lines.push(current)
-            current = w
+          const ww = wordWidth(fontPx, w)
+          if (!cur) {
+            cur = w
+            curW = ww
+          } else if (curW + space + ww <= maxWidth) {
+            cur += ` ${w}`
+            curW += space + ww
+          } else {
+            lines.push(cur)
+            maxLineW = Math.max(maxLineW, curW)
+            cur = w
+            curW = ww
           }
         }
-        if (current) lines.push(current)
-
-        // In full-text mode keep every wrapped line. The label group is clipped
-        // to the sector path below, so overflow is clipped rather than replaced
-        // with an ellipsis. The normal mode keeps the compact two-line behavior.
-        if (showFullText) return lines
-
-        const hardMaxLines = Math.max(1, Math.min(2, Math.floor((ringPx - TEXT_PADDING * 2) / (fontPx * LINE_HEIGHT))))
-        const overflow = lines.length > hardMaxLines
-        const trimmed = lines.slice(0, Math.max(1, hardMaxLines))
-
-        const out = trimmed.map((l, i) => {
-          const isLast = i === trimmed.length - 1
-          if (!isLast) return truncateNoEllipsis(l, maxWidth, fontPx)
-          const needsEllipsis = overflow || measureWith(fontPx, l) > maxWidth
-          return needsEllipsis ? ellipsize(l, maxWidth, fontPx) : truncateNoEllipsis(l, maxWidth, fontPx)
-        }).filter(Boolean)
-
-        // Fallback: if wrapping produced nothing but we have a name, force one ellipsized line.
-        if (!out.length && rawName && maxWidth > 4) {
-          const one = ellipsize(rawName, maxWidth, fontPx)
-          if (one) return [one]
+        if (cur) {
+          lines.push(cur)
+          maxLineW = Math.max(maxLineW, curW)
         }
-        return out
+        return { lines, maxLineW }
+      }
+
+      const sectorGeom = (d) => {
+        const r0 = Math.max(0, d.y0)
+        const r1 = Math.max(r0, d.y1)
+        const span = Math.max(0, d.x1 - d.x0)
+        return {
+          r0,
+          r1,
+          ring: r1 - r0,
+          midR: (r0 + r1) / 2,
+          half: span / 2,
+          full: span >= 2 * Math.PI - 1e-6,
+        }
+      }
+
+      // Max straight line width for a text block of height blockH centred on
+      // the cell middle.
+      // 'tan': text runs across the sector (along the arc), lines stack radially.
+      const tangentialWidth = (g, blockH) => {
+        if (blockH > g.ring - TEXT_PADDING * 2) return 0
+        const ri = g.midR - blockH / 2
+        const ro = g.midR + blockH / 2
+        const outer = g.r1 - TEXT_PADDING
+        let w = 2 * Math.sqrt(Math.max(0, outer * outer - ro * ro))
+        if (!g.full && g.half < Math.PI / 2) {
+          w = Math.min(w, 2 * (ri * Math.tan(g.half) - TEXT_PADDING / Math.cos(g.half)))
+        }
+        return Math.max(0, w)
+      }
+      // 'rad': text runs from the centre outwards, lines stack across the sector.
+      const radialWidth = (g, blockH) => {
+        const outer = g.r1 - TEXT_PADDING
+        const halfH = blockH / 2
+        if (halfH >= outer) return 0
+        let w = g.ring - TEXT_PADDING * 2
+        w = Math.min(w, 2 * (Math.sqrt(outer * outer - halfH * halfH) - g.midR))
+        if (!g.full && g.half < Math.PI / 2) {
+          const s = Math.sin(g.half)
+          if (s <= 0) return 0
+          w = Math.min(w, 2 * (g.midR - (halfH + TEXT_PADDING) / s))
+        }
+        return Math.max(0, w)
+      }
+      const widthFor = (g, orient, blockH) => (
+        orient === 'tan' ? tangentialWidth(g, blockH) : radialWidth(g, blockH)
+      )
+
+      const MAX_FIT_LINES = 12
+      const tryFit = (words, g, orient, fontPx) => {
+        const lh = fontPx * LINE_HEIGHT
+        for (let n = 1; n <= MAX_FIT_LINES; n += 1) {
+          const W = widthFor(g, orient, n * lh)
+          if (W <= 0) return null
+          const { lines, maxLineW } = wrapWords(words, fontPx, W)
+          if (lines.length <= n && maxLineW <= W) return { orient, fontPx, lines }
+        }
+        return null
+      }
+
+      const layoutLabel = (node) => {
+        const d = node.current
+        if (!arcVisible(d)) return null
+        const rawName = String(node.data?.name || '').trim()
+        if (!rawName || isBadLabel(rawName)) return null
+        const words = rawName.split(/\s+/).filter(Boolean)
+        if (!words.length) return null
+        const g = sectorGeom(d)
+        if (g.ring < 4) return null
+
+        const maxF = dynamicFontSize ? FONT_SIZE_MAX : baseFont
+        const floorF = showFullText ? FULL_TEXT_FONT_MIN : FONT_SIZE_MIN
+        const best = { tan: null, rad: null }
+        for (const o of ['tan', 'rad']) {
+          for (let f = maxF; f >= floorF; f -= 1) {
+            const r = tryFit(words, g, o, f)
+            if (r) {
+              best[o] = r
+              break
+            }
+          }
+        }
+        // Text follows the long side of the cell (never "across" it).
+        const arcLen = 2 * g.half * g.midR
+        const longSide = arcLen >= g.ring ? 'tan' : 'rad'
+
+        let pick = null
+        if (textAlongCircumference) {
+          // "Надпись по окружности": along the arc whenever it fits; very
+          // thin slivers fall back to radial instead of disappearing.
+          pick = best.tan || best.rad
+        } else if (best.tan && best.rad) {
+          if (best.tan.fontPx !== best.rad.fontPx) {
+            pick = best.tan.fontPx > best.rad.fontPx ? best.tan : best.rad
+          } else if (best.tan.lines.length !== best.rad.lines.length) {
+            pick = best.tan.lines.length < best.rad.lines.length ? best.tan : best.rad
+          } else {
+            pick = best[longSide]
+          }
+        } else {
+          pick = best.tan || best.rad
+        }
+        if (pick) return pick
+
+        // Nothing fits even at the minimum font.
+        const orient = textAlongCircumference ? 'tan' : longSide
+        const fontPx = floorF
+        const lh = fontPx * LINE_HEIGHT
+        if (showFullText) {
+          // Keep the whole string (no ellipsis), wrapped to the cell width.
+          const W = Math.max(widthFor(g, orient, lh), fontPx * 4)
+          return { orient, fontPx, lines: wrapWords(words, fontPx, W).lines }
+        }
+        // Truncated mode: at most 2 lines, last one ellipsized.
+        for (const o of [orient, orient === 'tan' ? 'rad' : 'tan']) {
+          const n = o === 'tan'
+            ? Math.max(1, Math.min(2, Math.floor((g.ring - TEXT_PADDING * 2) / lh)))
+            : 2
+          const W = widthFor(g, o, n * lh)
+          if (W < fontPx * 1.5) continue
+          const { lines } = wrapWords(words, fontPx, W)
+          const overflow = lines.length > n
+          const out = lines.slice(0, n).map((l, i, arr) => {
+            const isLast = i === arr.length - 1
+            if (!isLast) return truncateNoEllipsis(l, W, fontPx)
+            const s = overflow ? `${l}…` : l
+            return measureWith(fontPx, s) > W ? ellipsize(l, W, fontPx) : s
+          }).filter(Boolean)
+          if (out.length) return { orient: o, fontPx, lines: out }
+        }
+        return null
       }
 
       const color = d3.scaleOrdinal(
         palette.length ? palette : d3.quantize(d3.interpolateRainbow, (root.children?.length || 1) + 1)
       )
+      if (collapsedRoot) color(tree?.name || '')
 
       const blend = (colorHex, ratio) => {
         const c = d3.color(colorHex)
@@ -264,28 +383,27 @@ function D3Sunburst({
       })
 
       const arcVisible = d => d.y1 > 0 && d.y0 >= 0 && d.x1 > d.x0
-      const labelVisible = (d, fontPx) => {
-        if (!arcVisible(d)) return false
-        const midR = (d.y0 + d.y1) / 2
-        const arcLen = (d.x1 - d.x0) * midR
-        const thick = d.y1 - d.y0
-        // Lower thresholds so default (all toggles off) still shows labels on decent sectors.
-        return arcLen >= fontPx * 0.55 && thick >= fontPx * 0.65
-      }
 
       const centerRing = radius / (root.height + 1)
       const centerG = g.append('g').attr('class', 'd3-sunburst-center')
-      const rootFill = (() => {
-        if (root.data?.name && colorMap[root.data.name]) return colorMap[root.data.name]
-        return '#ffffff'
-      })()
+      // Centre disk is flush with the first ring and tinted like the slices
+      // (slices are drawn at ~0.7 opacity on white, i.e. blend 0.3) so it
+      // never looks like an empty white hole.
+      const centerFillFor = (node) => {
+        if (!node || node === root) {
+          const name = root.data?.name
+          if (name && colorMap[name]) return blend(colorMap[name], 0.3)
+          if (collapsedRoot) return blend(color(name || ''), 0.3)
+          return '#eef1f5'
+        }
+        return blend(fillFor(node), 0.3)
+      }
       const parentCircle = centerG
         .append('circle')
         .datum(root)
-        .attr('r', centerRing * 0.95)
-        .attr('fill', rootFill === '#ffffff' ? '#ffffff' : blend(rootFill, 0.85))
-        .attr('stroke', '#e0e0e0')
-        .attr('stroke-width', 1)
+        .attr('r', Math.max(1, centerRing - 1))
+        .attr('fill', centerFillFor(root))
+        .attr('stroke', 'none')
         .attr('pointer-events', 'all')
 
       const centerText = centerG
@@ -308,40 +426,45 @@ function D3Sunburst({
         }
         centerText.selectAll('tspan').remove()
         centerText.text('')
-        const fontPx = Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, baseFont + (dynamicFontSize ? 2 : 0)))
-        centerText.style('font-size', `${fontPx}px`)
         const words = text.split(/\s+/).filter(Boolean)
-        const maxWidth = centerRing * 1.55
-        let line = ''
-        const lines = []
-        for (const w of words) {
-          const test = line ? `${line} ${w}` : w
-          if (!line || measureWith(fontPx, test) <= maxWidth) line = test
-          else {
-            lines.push(line)
-            line = w
+        const R = Math.max(1, centerRing - 1)
+        const startF = Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, baseFont + (dynamicFontSize ? 6 : 2)))
+        const floorF = showFullText ? 8 : 10
+        const widthAt = (blockH) => {
+          const h = blockH / 2
+          if (h >= R) return 0
+          return Math.max(0, 2 * Math.sqrt(R * R - h * h) * 0.9 - TEXT_PADDING * 2)
+        }
+        let fontPx = floorF
+        let lines = null
+        for (let f = startF; f >= floorF && !lines; f -= 1) {
+          for (let n = 1; n <= 8; n += 1) {
+            const W = widthAt(n * f * 1.1)
+            if (W <= 0) break
+            const r = wrapWords(words, f, W)
+            if (r.lines.length <= n && r.maxLineW <= W) {
+              fontPx = f
+              lines = r.lines
+              break
+            }
           }
-          if (!showFullText && lines.length >= 3) break
         }
-        if (line && (showFullText || lines.length < 3)) lines.push(line)
-        // Full-text: keep every wrapped line, never ellipsize the center label.
-        const finalLines = (showFullText ? lines : lines.slice(0, 3)).map((l, i, arr) => {
-          if (showFullText) return l
-          if (i < arr.length - 1) return truncateNoEllipsis(l, maxWidth, fontPx)
-          const overflow = words.join(' ') !== arr.join(' ') || measureWith(fontPx, l) > maxWidth
-          return overflow ? ellipsize(l, maxWidth, fontPx) : l
-        }).filter(Boolean)
-        if (!finalLines.length) {
-          centerText.text(showFullText ? text : ellipsize(text, maxWidth, fontPx))
-          return
+        if (!lines) {
+          const W = Math.max(widthAt(3 * fontPx * 1.1), fontPx * 4)
+          const all = wrapWords(words, fontPx, W).lines
+          if (showFullText) lines = all
+          else {
+            lines = all.slice(0, 3)
+            if (all.length > 3) {
+              const s = `${lines[2]}…`
+              lines[2] = measureWith(fontPx, s) > W ? ellipsize(lines[2], W, fontPx) : s
+            }
+          }
         }
-        if (finalLines.length <= 1) {
-          centerText.text(finalLines[0] || (showFullText ? text : ellipsize(text, maxWidth, fontPx)))
-          return
-        }
-        const lineDy = fontPx * 1.05
-        const startDy = -((finalLines.length - 1) / 2) * lineDy
-        finalLines.forEach((l, i) => {
+        centerText.style('font-size', `${fontPx}px`)
+        const lineDy = fontPx * 1.1
+        const startDy = -((lines.length - 1) / 2) * lineDy
+        lines.forEach((l, i) => {
           centerText
             .append('tspan')
             .attr('x', 0)
@@ -403,23 +526,20 @@ function D3Sunburst({
         .style('user-select', 'none')
         .style('font-family', 'Arial, sans-serif')
 
-      // Tangential (along arc) — used when "Надпись по окружности" is on.
-      const labelTransformTangential = (d) => {
+      // Both orientations are centred on the cell middle (midR, mid angle).
+      // 'tan' — along the arc, upright for the viewer (bottom half flipped).
+      // 'rad' — from the centre outwards, left half flipped so it is not
+      // upside-down.
+      const labelTransform = (d, orient) => {
         const midAngle = (d.x0 + d.x1) / 2
-        const midR = (d.y0 + d.y1) / 2
+        const midR = (Math.max(0, d.y0) + Math.max(0, d.y1)) / 2
         const deg = (midAngle * 180) / Math.PI
+        if (orient === 'tan') {
+          const flip = midAngle > Math.PI / 2 && midAngle < (3 * Math.PI) / 2
+          return `rotate(${deg - 90}) translate(${midR},0) rotate(${flip ? -90 : 90})`
+        }
         const flip = midAngle > Math.PI
         return `rotate(${deg - 90}) translate(${midR},0) rotate(${flip ? 180 : 0})`
-      }
-
-      // Outward radial — preferred default (readable, less awkward than horizontal).
-      const labelTransformRadial = (d) => {
-        const midAngle = (d.x0 + d.x1) / 2
-        const midR = (d.y0 + d.y1) / 2
-        const deg = (midAngle * 180) / Math.PI
-        // Flip on the left half so text is not upside-down.
-        const flip = midAngle > Math.PI / 2 && midAngle < (3 * Math.PI) / 2
-        return `rotate(${deg - 90}) translate(${midR},0) rotate(${flip ? 90 : -90})`
       }
 
       const defs = svg.append('defs')
@@ -428,7 +548,7 @@ function D3Sunburst({
         labelG.selectAll('*').remove()
         defs.selectAll('clipPath').remove()
         // Clip only in truncated mode. Full-text must keep the whole string
-        // visible (wrap along arc or spill); clipPath mid-word cuts look like ellipsis.
+        // visible; clipPath mid-word cuts look like ellipsis.
         if (!showFullText) {
           nodes.forEach((node) => {
             defs.append('clipPath')
@@ -438,10 +558,9 @@ function D3Sunburst({
           })
         }
         nodes.forEach((node) => {
-          const fontPx = fontForNode(node)
-          if (!labelVisible(node.current, fontPx)) return
-          const lines = computeLines(node, fontPx)
-          if (!lines.length) return
+          const layout = layoutLabel(node)
+          if (!layout || !layout.lines.length) return
+          const { orient, fontPx, lines } = layout
 
           const dCur = node.current
           const clipped = labelG.append('g')
@@ -451,9 +570,8 @@ function D3Sunburst({
 
           const t = clipped
             .append('text')
-            .attr('transform', textAlongCircumference
-              ? labelTransformTangential(dCur)
-              : labelTransformRadial(dCur))
+            .attr('transform', labelTransform(dCur, orient))
+            .attr('data-orient', orient)
             .attr('dominant-baseline', 'middle')
             .attr('text-anchor', 'middle')
             .attr('fill', '#111')
@@ -480,6 +598,7 @@ function D3Sunburst({
         if (event) event.stopPropagation()
         hideTooltip()
         parentCircle.datum(p.parent || root)
+        parentCircle.attr('fill', centerFillFor(p))
         setCenterLabel(p)
 
         const k = radius / (p.y1 - p.y0)

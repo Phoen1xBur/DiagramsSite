@@ -194,6 +194,99 @@ def _wrap_hover_text(text, max_chars=48) -> str:
     return "<br>".join(out)
 
 
+# Client-side fix: Plotly pushes sunburst inside-text towards the outer edge
+# of a ring (rCenter). This script re-centres every label at the radial middle
+# of its sector when the whole rotated/scaled text box still fits there.
+CENTER_LABELS_JS = r"""
+(function () {
+  // Re-centre Plotly sunburst labels in the middle of their ring cell.
+  // Plotly pushes inside text towards the outer radius (rCenter); we move each
+  // label along the centre->label ray to the radial midpoint of its sector, as
+  // long as the whole (rotated/scaled) text box still fits inside the sector.
+  var busy = false, timer = null;
+  function pt(svg, x, y) { var p = svg.createSVGPoint(); p.x = x; p.y = y; return p; }
+  function inside(path, svg, x, y) { try { return path.isPointInFill(pt(svg, x, y)); } catch (e) { return false; } }
+  function centerOne(svg, cx, cy, slice) {
+    var path = slice.querySelector('path.surface');
+    var text = slice.querySelector('g.slicetext text');
+    if (!path || !text) return;
+    var orig = text.getAttribute('data-ctr-orig');
+    var cur = text.getAttribute('transform') || '';
+    if (orig === null || text.getAttribute('data-ctr-set') !== cur) {
+      orig = cur; text.setAttribute('data-ctr-orig', orig);
+    }
+    text.setAttribute('transform', orig);
+    var bb; try { bb = text.getBBox(); } catch (e) { return; }
+    if (!bb || !bb.width) return;
+    var pm = path.getCTM(), tm = text.getCTM();
+    if (!pm || !tm) return;
+    var m = pm.inverse().multiply(tm);
+    function map(x, y) { return pt(svg, x, y).matrixTransform(m); }
+    var c = map(bb.x + bb.width / 2, bb.y + bb.height / 2);
+    var vx = c.x - cx, vy = c.y - cy, r = Math.sqrt(vx * vx + vy * vy);
+    if (r < 1) return; // root / centre disk
+    var ux = vx / r, uy = vy / r;
+    if (inside(path, svg, cx, cy)) return; // root slice
+    var step = 0.5, rin = null, rout = null, maxR = r * 4 + 2000;
+    for (var s = 0; s < maxR; s += step) {
+      var ins = inside(path, svg, cx + ux * s, cy + uy * s);
+      if (ins && rin === null) rin = s;
+      if (!ins && rin !== null) { rout = s; break; }
+    }
+    if (rin === null || rout === null) return;
+    var rmid = (rin + rout) / 2;
+    var pts = [[bb.x, bb.y], [bb.x + bb.width, bb.y], [bb.x, bb.y + bb.height], [bb.x + bb.width, bb.y + bb.height],
+      [bb.x + bb.width / 2, bb.y], [bb.x + bb.width / 2, bb.y + bb.height], [bb.x, bb.y + bb.height / 2], [bb.x + bb.width, bb.y + bb.height / 2]]
+      .map(function (p) { return map(p[0], p[1]); });
+    function fits(d) {
+      for (var i = 0; i < pts.length; i++) {
+        if (!inside(path, svg, pts[i].x + ux * d, pts[i].y + uy * d)) return false;
+      }
+      return true;
+    }
+    var N = 12;
+    for (var k = 0; k < N; k++) {
+      var target = rmid + (r - rmid) * (k / N);
+      var d = target - r;
+      if (Math.abs(d) < 0.5) break;
+      if (fits(d)) {
+        var t = 'translate(' + (ux * d).toFixed(2) + ',' + (uy * d).toFixed(2) + ')' + orig;
+        text.setAttribute('transform', t);
+        text.setAttribute('data-ctr-set', t);
+        return;
+      }
+    }
+    text.setAttribute('data-ctr-set', orig);
+  }
+  function run() {
+    if (busy) return;
+    busy = true;
+    try {
+      var traces = document.querySelectorAll('g.trace.sunburst');
+      for (var i = 0; i < traces.length; i++) {
+        var tr = traces[i], svg = tr.ownerSVGElement;
+        var b = tr.getBBox();
+        var cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+        var slices = tr.querySelectorAll('g.slice');
+        for (var j = 0; j < slices.length; j++) centerOne(svg, cx, cy, slices[j]);
+      }
+    } catch (e) { if (window.console) console.warn('label centering failed', e); }
+    finally { setTimeout(function () { busy = false; }, 0); }
+  }
+  function schedule() { if (busy) return; clearTimeout(timer); timer = setTimeout(run, 150); }
+  window.__centerSunburstLabels = run;
+  function init() {
+    var gd = document.querySelector('.js-plotly-plot');
+    if (!gd) { setTimeout(init, 50); return; }
+    if (gd.on) { gd.on('plotly_afterplot', schedule); gd.on('plotly_animated', schedule); }
+    new MutationObserver(schedule).observe(gd, { subtree: true, childList: true, attributes: true, attributeFilter: ['transform', 'd'] });
+    run();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();
+"""
+
+
 def create_sunburst_chart(
     data: List[Dict],
     columns: List[str],
@@ -391,11 +484,11 @@ def create_sunburst_chart(
             current_line = ""
             for word in words:
                 if len(word) > max_length:
+                    # Never break a word in the middle ("Вдохновляющи/й"):
+                    # keep it whole on its own line; Plotly scales the text to fit.
                     if current_line:
                         lines.append(current_line)
-                        current_line = ""
-                    for i in range(0, len(word), max_length):
-                        lines.append(word[i:i+max_length])
+                    lines.append(word)
                     current_line = ""
                 elif len(current_line) + len(word) + 1 <= max_length:
                     current_line += (" " if current_line else "") + word
@@ -875,6 +968,7 @@ def create_sunburst_chart(
             "</head>",
             f'{hover_css}<meta name="plotly-chart-size" content="{chart_size},{chart_size}"></head>',
         )
+        html = html.replace("</body>", f"<script>{CENTER_LABELS_JS}</script></body>", 1)
         logger.info(f"HTML графика сгенерирован, длина: {len(html)} символов, размер: {chart_size}")
         return html, chart_size
 
