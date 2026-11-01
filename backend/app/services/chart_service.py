@@ -666,9 +666,18 @@ def create_sunburst_chart(
                         # Tangential labels run along the arc; horizontal labels
                         # use the same chord-sized width budget.
                         arc_length = sector_angle * radius_to_middle * TEXT_FILL_RATIO
-                        min_chars = 4 if full else 12
+                        # Horizontal truncated labels must fit narrow sectors,
+                        # otherwise Plotly hides them (empty cells).
+                        min_chars = 4 if (full or not text_along_circumference) else 12
                         max_chars = max(min_chars, int(arc_length / char))
                     wrapped = wrap_text(label_str, max_length=max_chars)
+                    if not full and not text_along_circumference:
+                        # Cut over-long single words so the label stays readable
+                        # instead of being scaled below minsize and hidden.
+                        wrapped = "<br>".join(
+                            ln if len(ln) <= max_chars else ln[:max(1, max_chars - 1)] + "…"
+                            for ln in wrapped.split("<br>")
+                        )
                     labels_out.append(wrapped)
                     depths_out.append(depth)
                     nlines = count_lines(wrapped)
@@ -688,38 +697,51 @@ def create_sunburst_chart(
         font_sizes = []
         
         # Truncated mode still ellipsizes lines that cannot fit the ring.
-        # show_full_text keeps every line: grow the chart (cap 6400), shrink
-        # the font down to 8px if needed, and re-wrap to the new arc.
-        # Never append "...".
+        # show_full_text keeps every line, but must not blow the diagram up:
+        # the chart may grow at most FULL_TEXT_GROWTH over its normal size
+        # (hard cap FULL_TEXT_MAX_SIZE). Past that the font shrinks (floor
+        # 9px) and labels are re-wrapped to the arc. Never append "...".
+        # Previously the cap was 6400px, so a 1900px chart grew 3.4x.
         min_line_height = FONT_SIZE_MIN * LINE_HEIGHT_RATIO
         if show_full_text and wrapped_labels:
-            MAX_FULL_TEXT_SIZE = 6400
-            FULL_FONT_FLOOR = 8
-            for _ in range(8):
-                max_lines_any = max((count_lines(t) for t in wrapped_labels), default=1)
-                line_height_px = max(1.0, text_font_size * LINE_HEIGHT_RATIO)
-                needed_thickness = max_lines_any * line_height_px + RING_PADDING * 2
-                needed_chart_size = int(needed_thickness * (levels_count + 1) * 2 + 40)
-                new_size = int(min(max(chart_size, needed_chart_size), MAX_FULL_TEXT_SIZE))
-                new_ring = new_size / 2 / (levels_count + 1)
-                available = max(1.0, new_ring - RING_PADDING * 2)
-                new_font = text_font_size
-                if needed_chart_size > MAX_FULL_TEXT_SIZE:
-                    fit_font = int(available / max(1, max_lines_any) / LINE_HEIGHT_RATIO)
-                    new_font = max(
-                        FULL_FONT_FLOOR,
-                        min(text_font_size, fit_font if fit_font > 0 else FULL_FONT_FLOOR),
-                    )
-                size_changed = new_size != int(chart_size)
-                font_changed = new_font != text_font_size
-                chart_size = new_size
-                ring_thickness = new_ring
-                text_font_size = new_font
-                wrapped_labels, node_depths, max_lines_per_level = build_wrapped(
-                    ring_thickness, text_font_size, True
-                )
-                if not size_changed and not font_changed:
+            FULL_TEXT_GROWTH = 1.2
+            FULL_TEXT_MAX_SIZE = 2600
+            MAX_FULL_TEXT_SIZE = int(max(chart_size, min(FULL_TEXT_MAX_SIZE, chart_size * FULL_TEXT_GROWTH)))
+            FULL_FONT_FLOOR = 9
+            base_size = int(chart_size)
+            base_font = int(text_font_size)
+
+            def _try_fit(size, font):
+                ring = size / 2 / (levels_count + 1)
+                labels, depths, per_level = build_wrapped(ring, font, True)
+                lines_any = max((count_lines(t_) for t_ in labels), default=1)
+                need = lines_any * font * LINE_HEIGHT_RATIO + RING_PADDING * 2
+                return need <= ring, (size, font, ring, labels, depths, per_level)
+
+            # Preference: keep size and shrink font a little; then grow a
+            # little (+10%, up to the cap) with progressively smaller fonts.
+            fonts = [f for f in range(base_font, FULL_FONT_FLOOR - 1, -1)]
+            sizes = []
+            for factor in (1.0, 1.1, FULL_TEXT_GROWTH):
+                sz = int(min(MAX_FULL_TEXT_SIZE, base_size * factor))
+                if sz not in sizes:
+                    sizes.append(sz)
+            soft_floor = max(FULL_FONT_FLOOR, base_font - 6)  # "slight" shrink
+            ladder = [(sz, f) for f in fonts if f >= soft_floor for sz in sizes[:1]]
+            ladder += [(sz, f) for sz in sizes[1:] for f in fonts if f >= soft_floor]
+            ladder += [(sizes[-1], f) for f in fonts if f < soft_floor]
+            chosen = None
+            for sz, f in ladder:
+                ok, res = _try_fit(sz, f)
+                if ok:
+                    chosen = res
                     break
+            if chosen is None:
+                # Nothing fits radially: use the cap and the floor font; Plotly
+                # still shows the text (uniformtext mode="show").
+                _, chosen = _try_fit(sizes[-1], FULL_FONT_FLOOR)
+            (chart_size, text_font_size, ring_thickness,
+             wrapped_labels, node_depths, max_lines_per_level) = chosen
         else:
             max_lines_fit = int((ring_thickness - RING_PADDING * 2) / min_line_height)
             max_lines_fit = max(2, max_lines_fit)
@@ -950,9 +972,14 @@ def create_sunburst_chart(
                     uniformtext=dict(mode="show", minsize=8),
                 )
             else:
+                # Horizontal default mode: smaller minsize so short labels in
+                # narrow cells are still drawn rather than hidden.
                 fig.update_layout(
                     font=dict(family="Arial, sans-serif", size=text_font_size),
-                    uniformtext=dict(mode="hide", minsize=FONT_SIZE_MIN),
+                    uniformtext=dict(
+                        mode="hide",
+                        minsize=FONT_SIZE_MIN if text_along_circumference else 9,
+                    ),
                 )
         
         html = fig.to_html(include_plotlyjs="inline", full_html=True)
