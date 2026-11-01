@@ -204,6 +204,9 @@ CENTER_LABELS_JS = r"""
   // label along the centre->label ray to the radial midpoint of its sector, as
   // long as the whole (rotated/scaled) text box still fits inside the sector.
   var busy = false, timer = null;
+  // Tangential/radial labels turn with the arc when moved sideways along it;
+  // horizontal labels (all toggles off) must stay horizontal.
+  var ROTATE = window.__sunburstLabelsRotate !== false;
   function pt(svg, x, y) { var p = svg.createSVGPoint(); p.x = x; p.y = y; return p; }
   function inside(path, svg, x, y) { try { return path.isPointInFill(pt(svg, x, y)); } catch (e) { return false; } }
   function centerOne(svg, cx, cy, slice) {
@@ -235,28 +238,95 @@ CENTER_LABELS_JS = r"""
     }
     if (rin === null || rout === null) return;
     var rmid = (rin + rout) / 2;
-    var pts = [[bb.x, bb.y], [bb.x + bb.width, bb.y], [bb.x, bb.y + bb.height], [bb.x + bb.width, bb.y + bb.height],
-      [bb.x + bb.width / 2, bb.y], [bb.x + bb.width / 2, bb.y + bb.height], [bb.x, bb.y + bb.height / 2], [bb.x + bb.width, bb.y + bb.height / 2]]
-      .map(function (p) { return map(p[0], p[1]); });
-    function fits(d) {
+    // Sample the text box (corners, edge midpoints and an inner grid) so we
+    // can measure how much of it would spill out of the sector.
+    var pts = [];
+    for (var gx = 0; gx <= 4; gx++) for (var gy = 0; gy <= 2; gy++) {
+      pts.push(map(bb.x + bb.width * gx / 4, bb.y + bb.height * gy / 2));
+    }
+    // overflow(d, sc, th): sample points outside the sector when the label is
+    // moved to radius r+d, turned by th radians around the chart centre and
+    // scaled by sc around its own centre.
+    var a0 = Math.atan2(uy, ux);
+    function overflow(d, sc, th) {
+      th = th || 0;
+      var rt = ROTATE ? th : 0, ct = Math.cos(rt), st = Math.sin(rt), R = r + d;
+      var tx = cx + Math.cos(a0 + th) * R, ty = cy + Math.sin(a0 + th) * R, n = 0;
       for (var i = 0; i < pts.length; i++) {
-        if (!inside(path, svg, pts[i].x + ux * d, pts[i].y + uy * d)) return false;
+        var px = (pts[i].x - c.x) * sc, py = (pts[i].y - c.y) * sc;
+        if (!inside(path, svg, tx + px * ct - py * st, ty + px * st + py * ct)) n++;
       }
-      return true;
+      return n;
     }
-    var N = 12;
-    for (var k = 0; k < N; k++) {
-      var target = rmid + (r - rmid) * (k / N);
-      var d = target - r;
-      if (Math.abs(d) < 0.5) break;
-      if (fits(d)) {
-        var t = 'translate(' + (ux * d).toFixed(2) + ',' + (uy * d).toFixed(2) + ')' + orig;
-        text.setAttribute('transform', t);
-        text.setAttribute('data-ctr-set', t);
-        return;
-      }
+    // Path space -> the text's parent space (where its transform attribute
+    // lives); Plotly only translates/scales between them.
+    var toParent = null;
+    try { toParent = text.parentNode.getCTM().inverse().multiply(pm); } catch (e) { toParent = null; }
+    function P(x, y) { return toParent ? pt(svg, x, y).matrixTransform(toParent) : { x: x, y: y }; }
+    function apply(d, sc, th) {
+      th = th || 0;
+      var R = r + d, T = P(cx + Math.cos(a0 + th) * R, cy + Math.sin(a0 + th) * R), C = P(c.x, c.y);
+      var t = 'translate(' + T.x.toFixed(2) + ',' + T.y.toFixed(2) + ')';
+      if (ROTATE && Math.abs(th) > 1e-4) t += 'rotate(' + (th * 180 / Math.PI).toFixed(3) + ')';
+      if (sc < 0.999) t += 'scale(' + sc.toFixed(3) + ')';
+      t += 'translate(' + (-C.x).toFixed(2) + ',' + (-C.y).toFixed(2) + ')' + orig;
+      text.setAttribute('transform', t);
+      text.setAttribute('data-ctr-set', t);
     }
+    var dMid = rmid - r;
+    // Angular middle of the cell at the mid radius: Plotly can also leave a
+    // label off-centre sideways, so centre it along the arc too.
+    var thMid = 0, dth = 0.5 / Math.max(rmid, 1), lim = Math.PI;
+    var tLo = 0, tHi = 0;
+    while (tLo > -lim && inside(path, svg, cx + Math.cos(a0 + tLo - dth) * rmid, cy + Math.sin(a0 + tLo - dth) * rmid)) tLo -= dth;
+    while (tHi < lim && inside(path, svg, cx + Math.cos(a0 + tHi + dth) * rmid, cy + Math.sin(a0 + tHi + dth) * rmid)) tHi += dth;
+    if (tHi - tLo < 2 * Math.PI - 4 * dth) thMid = (tLo + tHi) / 2;
+    if (Math.abs(dMid) < 0.5 && Math.abs(thMid * rmid) < 0.5) { text.setAttribute('data-ctr-set', orig); return; }
+    // 1) Middle of the cell at full size.
+    if (overflow(dMid, 1, thMid) === 0) { apply(dMid, 1, thMid); return; }
+    // 2) Middle of the cell, a bit smaller (down to MIN_SC): a label Plotly
+    //    pushed to the wide outer edge (long words such as
+    //    "Сбалансированное существование") gets centred instead of hugging
+    //    the edge of its cell.
+    var MIN_SC = 0.7;
+    if (overflow(dMid, MIN_SC, thMid) === 0) {
+      var lo = MIN_SC, hi = 1;
+      for (var it = 0; it < 7; it++) { var mid = (lo + hi) / 2; if (overflow(dMid, mid, thMid) === 0) lo = mid; else hi = mid; }
+      apply(dMid, lo, thMid); return;
+    }
+    // 3) Closest-to-middle shift that fits at full size.
+    var N = 12, best = null, bestN = overflow(0, 1, 0);
+    for (var k = 1; k < N; k++) {
+      var d = dMid * (1 - k / N);
+      var n = overflow(d, 1, 0);
+      if (n === 0) { apply(d, 1, 0); return; }
+      if (n < bestN) { bestN = n; best = d; }
+    }
+    // 4) Nothing fits completely: take the least spill-over (ties stay put).
+    if (best !== null && Math.abs(best) >= 0.5) { apply(best, 1, 0); return; }
     text.setAttribute('data-ctr-set', orig);
+  }
+  // True centre of the sunburst = centre of the root disk. The trace bbox
+  // is NOT symmetric when outer rings are ragged (some branches deeper than
+  // others), which used to skew every radial measurement.
+  function chartCenter(tr, svg) {
+    var paths = tr.querySelectorAll('g.slice path.surface'), best = null, bestA = Infinity;
+    for (var i = 0; i < paths.length; i++) {
+      var b; try { b = paths[i].getBBox(); } catch (e) { continue; }
+      if (!b || b.width < 4 || Math.abs(b.width - b.height) > 2) continue;
+      var x = b.x + b.width / 2, y = b.y + b.height / 2;
+      // A full disk: centre and the 4 axis points near the rim are inside,
+      // the 4 bbox-corner directions are outside (a square-ish cell fails).
+      var q = b.width * 0.45, ok = inside(paths[i], svg, x, y);
+      ok = ok && inside(paths[i], svg, x + q, y) && inside(paths[i], svg, x - q, y) && inside(paths[i], svg, x, y + q) && inside(paths[i], svg, x, y - q);
+      ok = ok && !inside(paths[i], svg, x + q, y + q) && !inside(paths[i], svg, x - q, y - q) && !inside(paths[i], svg, x + q, y - q) && !inside(paths[i], svg, x - q, y + q);
+      if (!ok) continue;
+      var a = b.width * b.height;
+      if (a < bestA) { bestA = a; best = { x: x, y: y }; }
+    }
+    if (best) return best;
+    var tb = tr.getBBox();
+    return { x: tb.x + tb.width / 2, y: tb.y + tb.height / 2 };
   }
   function run() {
     if (busy) return;
@@ -265,8 +335,7 @@ CENTER_LABELS_JS = r"""
       var traces = document.querySelectorAll('g.trace.sunburst');
       for (var i = 0; i < traces.length; i++) {
         var tr = traces[i], svg = tr.ownerSVGElement;
-        var b = tr.getBBox();
-        var cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+        var cc = chartCenter(tr, svg), cx = cc.x, cy = cc.y;
         if (window.__fillHiddenSunburstLabels) window.__fillHiddenSunburstLabels(svg, cx, cy, tr);
         var slices = tr.querySelectorAll('g.slice');
         for (var j = 0; j < slices.length; j++) centerOne(svg, cx, cy, slices[j]);
@@ -1142,6 +1211,8 @@ def create_sunburst_chart(
         label_scripts = CENTER_LABELS_JS
         if not show_full_text and not text_along_circumference and not font_sizes:
             label_scripts = FILL_HIDDEN_LABELS_JS + "\n" + CENTER_LABELS_JS
+        rotate_flag = "false" if text_orientation == "horizontal" else "true"
+        label_scripts = f"window.__sunburstLabelsRotate = {rotate_flag};\n" + label_scripts
         html = html.replace("</body>", f"<script>{label_scripts}</script></body>", 1)
         logger.info(f"HTML графика сгенерирован, длина: {len(html)} символов, размер: {chart_size}")
         return html, chart_size
