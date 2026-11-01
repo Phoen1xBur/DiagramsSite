@@ -267,6 +267,7 @@ CENTER_LABELS_JS = r"""
         var tr = traces[i], svg = tr.ownerSVGElement;
         var b = tr.getBBox();
         var cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+        if (window.__fillHiddenSunburstLabels) window.__fillHiddenSunburstLabels(svg, cx, cy, tr);
         var slices = tr.querySelectorAll('g.slice');
         for (var j = 0; j < slices.length; j++) centerOne(svg, cx, cy, slices[j]);
       }
@@ -283,6 +284,152 @@ CENTER_LABELS_JS = r"""
     run();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();
+"""
+
+# Horizontal (all toggles off) mode only: Plotly hides labels that do not fit
+# at uniformtext.minsize, leaving empty cells. Re-wrap / shorten them instead.
+FILL_HIDDEN_LABELS_JS = r"""
+(function () {
+  // Plotly hides (scale(0)) sunburst labels that cannot fit their cell at
+  // uniformtext.minsize. In the default horizontal mode that left whole cells
+  // empty. Re-lay such a label: re-wrap it at the common label scale, and if
+  // the whole text still does not fit, show a shortened label with an
+  // ellipsis (smaller font only as a last resort). Never leave it blank.
+  var NS = 'http://www.w3.org/2000/svg';
+  function pt(svg, x, y) { var p = svg.createSVGPoint(); p.x = x; p.y = y; return p; }
+  function inside(path, svg, x, y) { try { return path.isPointInFill(pt(svg, x, y)); } catch (e) { return false; } }
+  function parseT(tr) {
+    var m = /translate\(\s*([-\d.e]+)[ ,]+([-\d.e]+)\s*\)\s*scale\(\s*0\s*\)/.exec(tr || '');
+    return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : null;
+  }
+  function setLines(text, lines) {
+    while (text.firstChild) text.removeChild(text.firstChild);
+    for (var i = 0; i < lines.length; i++) {
+      var ts = document.createElementNS(NS, 'tspan');
+      ts.setAttribute('class', 'line');
+      ts.setAttribute('x', '0');
+      ts.setAttribute('dy', i === 0 ? '0em' : '1.3em');
+      ts.textContent = lines[i];
+      text.appendChild(ts);
+    }
+  }
+  function wrap(words, n) {
+    // Greedy wrap into at most n lines, balanced by character count.
+    var total = words.join(' ').length, target = Math.ceil(total / n), out = [], cur = '';
+    for (var i = 0; i < words.length; i++) {
+      var w = words[i];
+      if (!cur) cur = w;
+      else if ((cur + ' ' + w).length <= target || out.length === n - 1) cur += ' ' + w;
+      else { out.push(cur); cur = w; }
+    }
+    if (cur) out.push(cur);
+    return out;
+  }
+  function shortened(words, n, maxChars) {
+    // Up to n lines of ~maxChars, last one ends with an ellipsis.
+    var s = words.join(' '), out = [], pos = 0;
+    for (var i = 0; i < n && pos < s.length; i++) {
+      var rest = s.slice(pos).replace(/^\s+/, '');
+      pos = s.length - rest.length;
+      if (rest.length <= maxChars) { out.push(rest); pos = s.length; break; }
+      var cut = rest.lastIndexOf(' ', maxChars);
+      if (cut < Math.ceil(maxChars / 2)) cut = maxChars;
+      out.push(rest.slice(0, cut).replace(/\s+$/, ''));
+      pos += cut;
+    }
+    if (pos < s.length && out.length) {
+      var last = out[out.length - 1].replace(/[\s.,;:!?\-–—]+$/, '');
+      out[out.length - 1] = last + '…';
+    }
+    return out;
+  }
+  function tryPlace(svg, path, text, lines, scale, cands) {
+    setLines(text, lines);
+    var bb; try { bb = text.getBBox(); } catch (e) { return false; }
+    if (!bb || !bb.width) return false;
+    var bcx = bb.x + bb.width / 2, bcy = bb.y + bb.height / 2;
+    var pad = 2 / scale;
+    var corners = [[bb.x - pad, bb.y - pad], [bb.x + bb.width + pad, bb.y - pad], [bb.x - pad, bb.y + bb.height + pad],
+      [bb.x + bb.width + pad, bb.y + bb.height + pad], [bcx, bb.y - pad], [bcx, bb.y + bb.height + pad],
+      [bb.x - pad, bcy], [bb.x + bb.width + pad, bcy]];
+    for (var c = 0; c < cands.length; c++) {
+      var px = cands[c][0], py = cands[c][1], ok = true;
+      for (var i = 0; i < corners.length && ok; i++) {
+        ok = inside(path, svg, px + (corners[i][0] - bcx) * scale, py + (corners[i][1] - bcy) * scale);
+      }
+      if (ok) {
+        text.setAttribute('transform', 'translate(' + px.toFixed(2) + ',' + py.toFixed(2) + ')scale(' + scale.toFixed(4) +
+          ')translate(' + (-bcx).toFixed(2) + ',' + (-bcy).toFixed(2) + ')');
+        return true;
+      }
+    }
+    return false;
+  }
+  function candidates(path, svg, cx, cy, p0) {
+    var vx = p0.x - cx, vy = p0.y - cy, r = Math.sqrt(vx * vx + vy * vy), out = [];
+    if (r < 1) return [[p0.x, p0.y]];
+    var ux = vx / r, uy = vy / r, rin = null, rout = null;
+    for (var s = 0; s < r * 4 + 2000; s += 0.5) {
+      var ins = inside(path, svg, cx + ux * s, cy + uy * s);
+      if (ins && rin === null) rin = s;
+      if (!ins && rin !== null) { rout = s; break; }
+    }
+    if (rin !== null && rout !== null) {
+      [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74].forEach(function (f) {
+        var rr = rin + (rout - rin) * f; out.push([cx + ux * rr, cy + uy * rr]);
+      });
+    }
+    out.push([p0.x, p0.y]);
+    return out;
+  }
+  function uniformScale(trace) {
+    var ts = trace.querySelectorAll('g.slicetext text');
+    for (var i = 0; i < ts.length; i++) {
+      var m = /scale\(\s*([\d.e-]+)\s*\)/.exec(ts[i].getAttribute('transform') || '');
+      if (m && parseFloat(m[1]) > 0) return parseFloat(m[1]);
+    }
+    return 1;
+  }
+  window.__fillHiddenSunburstLabels = function (svg, cx, cy, trace) {
+    var us = uniformScale(trace);
+    var slices = trace.querySelectorAll('g.slice');
+    for (var j = 0; j < slices.length; j++) {
+      var slice = slices[j];
+      var path = slice.querySelector('path.surface');
+      var text = slice.querySelector('g.slicetext text');
+      if (!path || !text) continue;
+      var p0 = parseT(text.getAttribute('transform'));
+      if (!p0) continue;
+      var raw = (text.getAttribute('data-unformatted') || text.textContent || '')
+        .replace(/<br\s*\/?>/gi, ' ').replace(/\.\.\.$/, '').replace(/\s+/g, ' ').trim();
+      if (!raw) continue;
+      var words = raw.split(' ');
+      var fontPx = parseFloat(text.style.fontSize) || 22;
+      text.style.display = '';
+      var cands = candidates(path, svg, cx, cy, p0);
+      var scales = [us];
+      var minScale = Math.min(us, 7 / fontPx);
+      if (minScale < us - 1e-3) scales.push(Math.max(minScale, us * 0.85), minScale);
+      var done = false;
+      for (var si = 0; si < scales.length && !done; si++) {
+        var sc = scales[si];
+        for (var n = 1; n <= 5 && !done; n++) done = tryPlace(svg, path, text, wrap(words, n), sc, cands);
+        for (var mc = Math.min(raw.length, 24); mc >= 3 && !done; mc -= 1) {
+          for (var k = 1; k <= 3 && !done; k++) done = tryPlace(svg, path, text, shortened(words, k, mc), sc, cands);
+        }
+      }
+      if (!done) {
+        // Tiny sliver: still show the first letters rather than nothing.
+        setLines(text, shortened(words, 1, 3));
+        var bb = text.getBBox();
+        var c0 = cands[0];
+        text.setAttribute('transform', 'translate(' + c0[0].toFixed(2) + ',' + c0[1].toFixed(2) + ')scale(' + minScale.toFixed(4) +
+          ')translate(' + (-(bb.x + bb.width / 2)).toFixed(2) + ',' + (-(bb.y + bb.height / 2)).toFixed(2) + ')');
+      }
+      text.setAttribute('data-filled', '1');
+    }
+  };
 })();
 """
 
@@ -995,7 +1142,10 @@ def create_sunburst_chart(
             "</head>",
             f'{hover_css}<meta name="plotly-chart-size" content="{chart_size},{chart_size}"></head>',
         )
-        html = html.replace("</body>", f"<script>{CENTER_LABELS_JS}</script></body>", 1)
+        label_scripts = CENTER_LABELS_JS
+        if not show_full_text and not text_along_circumference and not font_sizes:
+            label_scripts = FILL_HIDDEN_LABELS_JS + "\n" + CENTER_LABELS_JS
+        html = html.replace("</body>", f"<script>{label_scripts}</script></body>", 1)
         logger.info(f"HTML графика сгенерирован, длина: {len(html)} символов, размер: {chart_size}")
         return html, chart_size
 
