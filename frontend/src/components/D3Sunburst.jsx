@@ -597,10 +597,26 @@ function D3Sunburst({
       // remaining radius ring by ring. Everything else collapses (invisible,
       // no pointer events) so clicks never hit hidden arcs.
       let focus = root
+      // While a zoom transition runs, every arc has pointer-events:none, so a
+      // fast second click (double-click) would fall through to the SVG
+      // background and reset the view to the root. Ignore navigation clicks
+      // until the transition has settled.
+      const ZOOM_MS = 600
+      let animating = false
+      let animTimer = null
+      const finishAnim = () => {
+        animating = false
+        if (animTimer) { clearTimeout(animTimer); animTimer = null }
+      }
       const clicked = (event, p) => {
         if (event) event.stopPropagation()
         if (!p) return
         if (p !== root && !p.children) return
+        if (animating) return
+        animating = true
+        if (animTimer) clearTimeout(animTimer)
+        // Safety net in case the transition is interrupted and 'end' never fires.
+        animTimer = setTimeout(finishAnim, ZOOM_MS + 250)
         hideTooltip()
         focus = p
         parentCircle.datum(p.parent || root)
@@ -624,7 +640,7 @@ function D3Sunburst({
           }
         })
 
-        const t = g.transition().duration(600)
+        const t = g.transition().duration(ZOOM_MS)
         labelG.style('opacity', 0)
         parentCircle.transition(t).attr('r', Math.max(1, ring - 1))
 
@@ -645,6 +661,12 @@ function D3Sunburst({
           path.attr('pointer-events', d => (arcVisible(d.current) ? 'auto' : 'none'))
           renderLabels()
           labelG.style('opacity', 1)
+          finishAnim()
+        })
+        t.on('interrupt', () => {
+          root.each(d => { d.current = d.target })
+          path.attr('pointer-events', d => (arcVisible(d.current) ? 'auto' : 'none'))
+          finishAnim()
         })
       }
 
@@ -716,6 +738,7 @@ function D3Sunburst({
       svgNode.addEventListener('pointercancel', onPointerUp)
       svgNode.addEventListener('click', onClickCapture, true)
       svgNode.addEventListener('dragstart', onDragStart)
+      svg.on('dblclick', (event) => { event.preventDefault() })
 
       path.style('cursor', d => (d.children ? 'pointer' : 'grab'))
       // Petal with children -> zoom in. Leaf -> no-op (must not reset view).
@@ -727,11 +750,20 @@ function D3Sunburst({
       // Centre -> one level up.
       parentCircle.on('click', (event) => {
         event.stopPropagation()
+        // A double-click on a petal: the second click lands here only because
+        // the arcs are mid-transition - ignore it (handled in clicked too).
+        if (animating) return
         if (focus !== root) clicked(event, focus.parent || root)
       })
-      // Empty background -> back to the root view.
+      // Empty background -> back to the root view. Only a click strictly
+      // outside the chart circle counts; a click inside the circle that hits
+      // the bare SVG (gaps between arcs, collapsed arcs during a transition)
+      // must never reset the view.
       svg.on('click', (event) => {
-        if (event.target === svgNode && focus !== root) clicked(null, root)
+        if (event.target !== svgNode || focus === root || animating) return
+        const [mx, my] = d3.pointer(event, g.node())
+        if (Math.hypot(mx, my) <= radius + 1) return
+        clicked(null, root)
       })
     } catch (err) {
       console.error('D3 sunburst render failed:', err)
