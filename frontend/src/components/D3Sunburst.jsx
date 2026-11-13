@@ -111,6 +111,8 @@ function D3Sunburst({
         // Positive origin viewBox — avoids PDF/canvas crop of negative-viewBox SVGs
         .attr('viewBox', `0 0 ${diameter} ${diameter}`)
         .attr('data-chart-diameter', String(diameter))
+        .attr('role', 'img')
+        .attr('aria-label', 'Иерархическая диаграмма «Солнечные лучи»')
         .style('cursor', 'grab')
 
       const g = svg.append('g').attr('transform', `translate(${radius},${radius})`)
@@ -489,7 +491,12 @@ function D3Sunburst({
         const tip = tooltipRef.current
         if (!tip) return
         const path = pathHoverText(d)
-        tip.innerHTML = `<div><b>Путь:</b> ${path.replace(/</g, '&lt;')}</div>`
+        tip.replaceChildren()
+        const wrap = document.createElement('div')
+        const labelEl = document.createElement('b')
+        labelEl.textContent = 'Путь:'
+        wrap.append(labelEl, document.createTextNode(` ${path}`))
+        tip.appendChild(wrap)
         tip.style.display = 'block'
         const pad = 12
         const offsetX = 18

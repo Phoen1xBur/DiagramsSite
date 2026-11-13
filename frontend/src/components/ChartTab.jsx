@@ -1059,6 +1059,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
         iframe.style.display = 'block'
         iframe.style.background = 'white'
         iframe.setAttribute('scrolling', 'no')
+        iframe.setAttribute('title', 'Диаграмма «Солнечные лучи»')
 
         const updateContentSize = () => {
           try {
@@ -1479,7 +1480,7 @@ function ChartTab({ data, columns, fileId, user, onChartSaved, projectId, opened
       </div>
 
       {error && (
-        <div className="error">
+        <div className="error" role="alert">
           {error}
         </div>
       )}

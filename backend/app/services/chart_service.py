@@ -1,3 +1,4 @@
+import html
 import math
 import re
 import pandas as pd
@@ -173,7 +174,7 @@ def _wrap_hover_text(text, max_chars=48) -> str:
             continue
         words = part.split()
         if not words:
-            out.append(part)
+            out.append(html.escape(part, quote=True))
             continue
         line = ""
         for w in words:
@@ -182,15 +183,15 @@ def _wrap_hover_text(text, max_chars=48) -> str:
                 line = trial
             else:
                 if line:
-                    out.append(line)
+                    out.append(html.escape(line, quote=True))
                 if len(w) > max_chars:
                     for i in range(0, len(w), max_chars):
-                        out.append(w[i:i + max_chars])
+                        out.append(html.escape(w[i:i + max_chars], quote=True))
                     line = ""
                 else:
                     line = w
         if line:
-            out.append(line)
+            out.append(html.escape(line, quote=True))
     return "<br>".join(out)
 
 
@@ -554,8 +555,8 @@ def create_sunburst_chart(
             return (
                 f"<div style='padding:16px; max-width:560px; margin:0 auto; border:1px solid #f0ad4e; border-radius:8px; "
                 f"background:#fffbf0; color:#333;'>"
-                f"<p style='margin:0 0 12px 0; font-weight:600;'>Ошибка: {msg}</p>"
-                f"<p style='margin:0; font-size:14px; color:#666;'>{detail}</p>"
+                f"<p style='margin:0 0 12px 0; font-weight:600;'>Ошибка: {html.escape(str(msg), quote=True)}</p>"
+                f"<p style='margin:0; font-size:14px; color:#666;'>{html.escape(str(detail), quote=True)}</p>"
                 f"</div>",
                 800,
             )
@@ -1230,7 +1231,7 @@ def create_sunburst_chart(
 
     except Exception as e:
         logger.exception("Ошибка построения диаграммы")
-        return ("<!DOCTYPE html><html><head><meta charset='utf-8'><style>body{font:16px/1.4 Arial,sans-serif;padding:24px;color:#b00020;}pre{white-space:pre-wrap;font:14px/1.4 Consolas,monospace;}</style></head><body><p><b>Chart error</b></p><pre>" + str(e) + "</pre></body></html>"), 800
+        return ("<!DOCTYPE html><html><head><meta charset='utf-8'><style>body{font:16px/1.4 Arial,sans-serif;padding:24px;color:#b00020;}pre{white-space:pre-wrap;font:14px/1.4 Consolas,monospace;}</style></head><body><p><b>Chart error</b></p><pre>" + html.escape(str(e), quote=True) + "</pre></body></html>"), 800
 
 
 def build_d3_payload(

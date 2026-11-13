@@ -172,6 +172,9 @@ function Toast({ message, type = 'info', onClose, duration = 6000 }) {
   return (
     <div 
       className={`toast toast-${type}`} 
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
       onClick={handleClose}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
