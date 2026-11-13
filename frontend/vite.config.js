@@ -55,7 +55,7 @@ export default defineConfig({
     'import.meta.env.VITE_GIT_SHA': JSON.stringify(gitSha),
   },
   optimizeDeps: {
-    include: ['buffer', 'plotly.js', 'react-plotly.js', 'd3'],
+    include: ['buffer', 'd3'],
   },
   server: {
     host: '0.0.0.0',
@@ -94,8 +94,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'plotly-vendor': ['plotly.js', 'react-plotly.js']
+          'react-vendor': ['react', 'react-dom', 'react-router-dom']
         }
       }
     }
