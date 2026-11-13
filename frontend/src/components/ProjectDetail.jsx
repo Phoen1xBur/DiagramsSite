@@ -279,7 +279,7 @@ function ProjectDetail() {
   if (loading) {
     return (
       <div className="project-detail">
-        <p>Загрузка...</p>
+        <main id="main-content"><p>Загрузка...</p></main>
       </div>
     )
   }
@@ -287,15 +287,17 @@ function ProjectDetail() {
   if (!project) {
     return (
       <div className="project-detail">
-        <p>Проект не найден</p>
-        <button onClick={() => navigate('/')}>Вернуться на главную</button>
+        <main id="main-content">
+          <p>Проект не найден</p>
+          <button type="button" onClick={() => navigate('/')}>Вернуться на главную</button>
+        </main>
       </div>
     )
   }
 
   return (
     <div className="project-detail">
-      <div className="project-header">
+      <header className="project-header">
         <button className="back-btn-compact" onClick={() => navigate('/')} title="Назад на главную">
           ←
         </button>
@@ -330,7 +332,7 @@ function ProjectDetail() {
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
               <div className="project-title-block">
-                <h2 style={{ margin: 0 }}>{project.name}</h2>
+                <h1 style={{ margin: 0, fontSize: '1.5rem' }}>{project.name}</h1>
                 {(fileId || currentData) && currentFileName && (
                   <p className="project-open-filename">{currentFileName}</p>
                 )}
@@ -359,11 +361,31 @@ function ProjectDetail() {
           )}
           {project.description && <p className="project-description">{project.description}</p>}
         </div>
-      </div>
+      </header>
 
-      <div className="tab-container">
+      <div
+        className="tab-container"
+        role="tablist"
+        aria-label="Разделы проекта"
+        onKeyDown={(e) => {
+          const tabs = ['files', 'diagrams', ...((fileId || currentData) ? ['editor', 'chart'] : [])]
+          const i = tabs.indexOf(activeTab)
+          if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+          e.preventDefault()
+          const next = e.key === 'ArrowRight'
+            ? tabs[(i + 1) % tabs.length]
+            : tabs[(i - 1 + tabs.length) % tabs.length]
+          setActiveTab(next)
+          document.getElementById(`tab-${next}`)?.focus()
+        }}
+      >
         <button
           type="button"
+          id="tab-files"
+          role="tab"
+          aria-selected={activeTab === 'files'}
+          aria-controls="panel-files"
+          tabIndex={activeTab === 'files' ? 0 : -1}
           className={`tab-button ${activeTab === 'files' ? 'active' : ''}`}
           onClick={() => setActiveTab('files')}
         >
@@ -371,6 +393,11 @@ function ProjectDetail() {
         </button>
         <button
           type="button"
+          id="tab-diagrams"
+          role="tab"
+          aria-selected={activeTab === 'diagrams'}
+          aria-controls="panel-diagrams"
+          tabIndex={activeTab === 'diagrams' ? 0 : -1}
           className={`tab-button ${activeTab === 'diagrams' ? 'active' : ''}`}
           onClick={() => setActiveTab('diagrams')}
         >
@@ -380,6 +407,11 @@ function ProjectDetail() {
           <>
             <button
               type="button"
+              id="tab-editor"
+              role="tab"
+              aria-selected={activeTab === 'editor'}
+              aria-controls="panel-editor"
+              tabIndex={activeTab === 'editor' ? 0 : -1}
               className={`tab-button ${activeTab === 'editor' ? 'active' : ''}`}
               onClick={() => setActiveTab('editor')}
             >
@@ -387,6 +419,11 @@ function ProjectDetail() {
             </button>
             <button
               type="button"
+              id="tab-chart"
+              role="tab"
+              aria-selected={activeTab === 'chart'}
+              aria-controls="panel-chart"
+              tabIndex={activeTab === 'chart' ? 0 : -1}
               className={`tab-button ${activeTab === 'chart' ? 'active' : ''}`}
               onClick={() => setActiveTab('chart')}
             >
@@ -396,8 +433,9 @@ function ProjectDetail() {
         )}
       </div>
 
+      <main id="main-content">
       {activeTab === 'files' && (
-        <div className="project-files-list">
+        <div id="panel-files" role="tabpanel" aria-labelledby="tab-files" className="project-files-list">
           {projectFiles.length > 0 && (
             <div style={{ marginBottom: '30px' }}>
               <h3 style={{ marginBottom: '20px', fontSize: '20px', fontWeight: '600' }}>Файлы проекта</h3>
@@ -523,6 +561,8 @@ function ProjectDetail() {
       )}
 
       {activeTab === 'diagrams' && (
+        <div id="panel-diagrams" role="tabpanel" aria-labelledby="tab-diagrams">
+
         <div className="project-diagrams-list">
           {projectDiagrams.length === 0 ? (
             <div className="empty-state">
@@ -595,9 +635,12 @@ function ProjectDetail() {
             </div>
           )}
         </div>
+        </div>
       )}
 
       {activeTab === 'editor' && (fileId || currentData) && (
+        <div id="panel-editor" role="tabpanel" aria-labelledby="tab-editor">
+
         <EditorTab
           data={currentData}
           columns={columns}
@@ -625,9 +668,12 @@ function ProjectDetail() {
             ))
           }}
         />
+        </div>
       )}
 
       {activeTab === 'chart' && fileId && (
+        <div id="panel-chart" role="tabpanel" aria-labelledby="tab-chart">
+
         <ChartTab
           data={currentData}
           columns={columns}
@@ -643,7 +689,9 @@ function ProjectDetail() {
             await loadProject()
           }}
         />
+        </div>
       )}
+      </main>
       
       <DeleteFileModal
         isOpen={deleteFileModal.isOpen}

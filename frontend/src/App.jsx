@@ -263,16 +263,20 @@ function AppContent() {
   }
 
   if (isLoading) {
-    return <div style={{ padding: '20px', textAlign: 'center' }}>Загрузка...</div>
+    return (
+      <div className="app">
+        <main id="main-content" style={{ padding: '20px', textAlign: 'center' }}>Загрузка...</main>
+      </div>
+    )
   }
 
   // Для зарегистрированных пользователей показываем только проекты
   if (user) {
     return (
       <div className="app">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <div>
-            <h2>Мои проекты</h2>
+            <h1>Мои проекты</h1>
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -291,8 +295,9 @@ function AppContent() {
               </button>
             </div>
           </div>
-        </div>
+        </header>
 
+        <main id="main-content">
         <ProjectsTab
           onFileSelect={(file) => {
             // При выборе файла переходим в проект
@@ -309,6 +314,7 @@ function AppContent() {
           currentFileId={fileId}
           isFileModified={isFileModified}
         />
+        </main>
 
         <AuthModal
           isOpen={showAuthModal}
@@ -322,9 +328,9 @@ function AppContent() {
   // Для незарегистрированных пользователей показываем обычный интерфейс
   return (
     <div className="app">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <div>
-          <h2>Диаграмма "Солнечные лучи"</h2>
+          <h1>Диаграмма «Солнечные лучи»</h1>
           {fileId && currentData && (
             <p style={{ margin: '5px 0 0 0', color: '#666', fontSize: '14px' }}>
               Текущий файл: {columns.length > 0 ? `${columns.length} столбцов, ${currentData.length} строк` : 'Нет данных'}
@@ -336,11 +342,31 @@ function AppContent() {
             Войти / Зарегистрироваться
           </button>
         </div>
-      </div>
+      </header>
 
-      <div className="tab-container">
+      <div
+        className="tab-container"
+        role="tablist"
+        aria-label="Разделы"
+        onKeyDown={(e) => {
+          const tabs = ['file', 'editor', 'chart']
+          const i = tabs.indexOf(activeTab)
+          if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+          e.preventDefault()
+          const next = e.key === 'ArrowRight'
+            ? tabs[(i + 1) % tabs.length]
+            : tabs[(i - 1 + tabs.length) % tabs.length]
+          setActiveTab(next)
+          document.getElementById(`tab-${next}`)?.focus()
+        }}
+      >
         <button
           type="button"
+          id="tab-file"
+          role="tab"
+          aria-selected={activeTab === 'file'}
+          aria-controls="panel-file"
+          tabIndex={activeTab === 'file' ? 0 : -1}
           className={`tab-button-guest ${activeTab === 'file' ? 'active' : ''}`}
           onClick={() => setActiveTab('file')}
         >
@@ -348,6 +374,11 @@ function AppContent() {
         </button>
         <button
           type="button"
+          id="tab-editor"
+          role="tab"
+          aria-selected={activeTab === 'editor'}
+          aria-controls="panel-editor"
+          tabIndex={activeTab === 'editor' ? 0 : -1}
           className={`tab-button-guest ${activeTab === 'editor' ? 'active' : ''}`}
           onClick={() => setActiveTab('editor')}
         >
@@ -355,6 +386,11 @@ function AppContent() {
         </button>
         <button
           type="button"
+          id="tab-chart"
+          role="tab"
+          aria-selected={activeTab === 'chart'}
+          aria-controls="panel-chart"
+          tabIndex={activeTab === 'chart' ? 0 : -1}
           className={`tab-button-guest ${activeTab === 'chart' ? 'active' : ''}`}
           onClick={() => setActiveTab('chart')}
         >
@@ -362,7 +398,9 @@ function AppContent() {
         </button>
       </div>
 
+      <main id="main-content">
       {activeTab === 'file' && (
+        <div id="panel-file" role="tabpanel" aria-labelledby="tab-file">
         <FileTab
           onFileLoaded={handleFileLoaded}
           currentData={currentData}
@@ -371,9 +409,11 @@ function AppContent() {
           onFileLoadedCallback={() => setIsFileModified(false)}
           onSwitchToEditor={() => setActiveTab('editor')}
         />
+        </div>
       )}
 
       {activeTab === 'editor' && (
+        <div id="panel-editor" role="tabpanel" aria-labelledby="tab-editor">
         <EditorTab
           data={currentData}
           columns={columns}
@@ -384,9 +424,11 @@ function AppContent() {
           onFileSaved={handleFileSaved}
           onFileIdUpdate={setFileId}
         />
+        </div>
       )}
 
       {activeTab === 'chart' && (
+        <div id="panel-chart" role="tabpanel" aria-labelledby="tab-chart">
         <ChartTab
           data={currentData}
           columns={columns}
@@ -396,7 +438,9 @@ function AppContent() {
             // Обновляем список диаграмм при сохранении
           }}
         />
+        </div>
       )}
+      </main>
 
       <AuthModal
         isOpen={showAuthModal}
@@ -411,6 +455,7 @@ function App() {
   return (
     <NotificationProvider>
       <Router>
+        <a href="#main-content" className="skip-link">Перейти к основному содержимому</a>
         <Routes>
           <Route path="/" element={<AppContent />} />
           <Route path="/project/:projectId" element={<ProjectDetailRoute />} />
