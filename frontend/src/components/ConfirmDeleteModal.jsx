@@ -1,11 +1,12 @@
+import { useModalDialog } from '../hooks/useModalDialog'
 import './ConfirmDeleteModal.css'
 
 function ConfirmDeleteModal({ isOpen, onClose, onConfirm, diagramName }) {
-  if (!isOpen) return null
+  const dialogRef = useModalDialog({ isOpen, onClose })
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+    <dialog ref={dialogRef} className="app-dialog-overlay modal-overlay">
+      <div className="modal-content">
         <h3>Подтвердите удаление</h3>
         <p>
           Вы уверены, что хотите удалить диаграмму <strong>"{diagramName}"</strong>?
@@ -22,7 +23,7 @@ function ConfirmDeleteModal({ isOpen, onClose, onConfirm, diagramName }) {
             </button>
           </div>
       </div>
-    </div>
+    </dialog>
   )
 }
 

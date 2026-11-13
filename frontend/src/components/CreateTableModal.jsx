@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { useNotification } from '../contexts/NotificationContext'
+import { useModalDialog } from '../hooks/useModalDialog'
 import './CreateTableModal.css'
 
 function CreateTableModal({ isOpen, onClose, onCreate }) {
@@ -9,6 +10,16 @@ function CreateTableModal({ isOpen, onClose, onCreate }) {
   const [editValue, setEditValue] = useState('')
   const [fileName, setFileName] = useState('Новая таблица')
   const inputRefs = useRef({})
+  const editingColumnRef = useRef(null)
+  editingColumnRef.current = editingColumn
+
+  const handleDialogCancel = (event) => {
+    if (editingColumnRef.current !== null) {
+      event.preventDefault()
+      setEditingColumn(null)
+    }
+  }
+  const dialogRef = useModalDialog({ isOpen, onClose, onCancel: handleDialogCancel })
 
   useEffect(() => {
     if (isOpen) {
@@ -43,6 +54,8 @@ function CreateTableModal({ isOpen, onClose, onCreate }) {
       e.preventDefault()
       handleBlur(index)
     } else if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
       setEditingColumn(null)
     }
   }
@@ -76,18 +89,17 @@ function CreateTableModal({ isOpen, onClose, onCreate }) {
     onClose()
   }
 
-  if (!isOpen) return null
-
   return (
-    <div className="create-table-modal-overlay" onClick={onClose}>
-      <div className="create-table-modal" onClick={(e) => e.stopPropagation()}>
-        <button className="create-table-modal-close" onClick={onClose}>×</button>
+    <dialog ref={dialogRef} className="app-dialog-overlay create-table-modal-overlay">
+      <div className="create-table-modal">
+        <button type="button" className="create-table-modal-close" onClick={onClose}>×</button>
         <h2>Создать новую таблицу</h2>
         <p>Укажите названия столбцов. Двойной клик по названию для редактирования.</p>
         
         <div className="form-group" style={{ marginBottom: '20px' }}>
-          <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#212529' }}>Название файла *</label>
+          <label htmlFor="create-table-file-name" style={{ display: 'block', marginBottom: '8px', fontWeight: '500', color: '#212529' }}>Название файла *</label>
           <input
+            id="create-table-file-name"
             type="text"
             value={fileName}
             onChange={(e) => setFileName(e.target.value)}
@@ -148,7 +160,7 @@ function CreateTableModal({ isOpen, onClose, onCreate }) {
           </div>
         </div>
       </div>
-    </div>
+    </dialog>
   )
 }
 

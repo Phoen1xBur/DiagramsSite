@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import apiClient from '../api/client'
 import { saveUserToken, saveUserData } from '../utils/storage'
+import { useModalDialog } from '../hooks/useModalDialog'
 import './AuthModal.css'
 
 function AuthModal({ isOpen, onClose, onLogin }) {
@@ -12,17 +13,8 @@ function AuthModal({ isOpen, onClose, onLogin }) {
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const overlayRef = useRef(null)
-  
-  // Предотвращаем закрытие модального окна при загрузке или если оно только что открылось
-  const handleOverlayClick = (e) => {
-    // Закрываем только если клик был именно на overlay, а не на дочерний элемент
-    // и если не идет загрузка
-    if (e.target === overlayRef.current && !loading) {
-      onClose()
-    }
-  }
-  
+  const dialogRef = useModalDialog({ isOpen, onClose, closeDisabled: loading })
+
   // Сбрасываем форму при открытии модального окна
   useEffect(() => {
     if (isOpen) {
@@ -37,26 +29,6 @@ function AuthModal({ isOpen, onClose, onLogin }) {
     }
   }, [isOpen])
   
-  // Обработка клавиши Escape для закрытия модального окна
-  useEffect(() => {
-    const handleEscape = (e) => {
-      if (e.key === 'Escape' && isOpen && !loading) {
-        onClose()
-      }
-    }
-    
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape)
-      // Предотвращаем прокрутку фона при открытом модальном окне
-      document.body.style.overflow = 'hidden'
-    }
-    
-    return () => {
-      document.removeEventListener('keydown', handleEscape)
-      document.body.style.overflow = 'unset'
-    }
-  }, [isOpen, loading, onClose])
-
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
@@ -212,22 +184,11 @@ function AuthModal({ isOpen, onClose, onLogin }) {
     }
   }
 
-  if (!isOpen) return null
-
   return (
-    <div 
-      className="auth-modal-overlay" 
-      ref={overlayRef}
-      onClick={handleOverlayClick}
-      onMouseDown={(e) => {
-        // Предотвращаем закрытие при клике на overlay во время загрузки
-        if (loading) {
-          e.preventDefault()
-        }
-      }}
-    >
-      <div className="auth-modal" onClick={(e) => e.stopPropagation()}>
+    <dialog ref={dialogRef} className="app-dialog-overlay auth-modal-overlay">
+      <div className="auth-modal">
         <button 
+          type="button"
           className="auth-modal-close" 
           onClick={onClose}
           disabled={loading}
@@ -237,28 +198,38 @@ function AuthModal({ isOpen, onClose, onLogin }) {
         </button>
         <h2>{isLogin ? 'Вход' : 'Регистрация'}</h2>
         
-        {error && <div className="auth-error">{error}</div>}
+        {error && (
+          <div id="auth-error" className="auth-error" role="alert" aria-live="assertive">
+            {error}
+          </div>
+        )}
         
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label>Email:</label>
+            <label htmlFor="auth-email">Email:</label>
             <input
+              id="auth-email"
               name="email"
-              type={isLogin ? 'text' : 'email'}
+              type="email"
+              autoComplete="username"
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               required
               disabled={loading}
               placeholder="Введите email"
+              aria-invalid={error ? 'true' : undefined}
+              aria-describedby={error ? 'auth-error' : undefined}
             />
           </div>
           
           {!isLogin && (
             <div className="form-group">
-              <label>Имя:</label>
+              <label htmlFor="auth-first-name">Имя:</label>
               <input
+                id="auth-first-name"
                 name="first_name"
                 type="text"
+                autoComplete="given-name"
                 value={formData.first_name}
                 onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
                 required
@@ -269,14 +240,17 @@ function AuthModal({ isOpen, onClose, onLogin }) {
           )}
           
           <div className="form-group">
-            <label>Пароль:</label>
+            <label htmlFor="auth-password">Пароль:</label>
             <input
+              id="auth-password"
               name="password"
               type="password"
+              autoComplete={isLogin ? 'current-password' : 'new-password'}
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               required
               disabled={loading}
+              aria-invalid={error ? 'true' : undefined}
             />
           </div>
           
@@ -293,7 +267,7 @@ function AuthModal({ isOpen, onClose, onLogin }) {
           )}
         </p>
       </div>
-    </div>
+    </dialog>
   )
 }
 

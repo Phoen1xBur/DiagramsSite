@@ -1,13 +1,14 @@
 import React from 'react'
+import { useModalDialog } from '../hooks/useModalDialog'
 import './DeleteFileModal.css'
 
 function DeleteFileModal({ isOpen, onClose, onConfirm, fileName }) {
-  if (!isOpen) return null
+  const dialogRef = useModalDialog({ isOpen, onClose })
 
   return (
-    <div className="delete-file-modal-overlay" onClick={onClose}>
-      <div className="delete-file-modal" onClick={(e) => e.stopPropagation()}>
-        <button className="delete-file-modal-close" onClick={onClose}>×</button>
+    <dialog ref={dialogRef} className="app-dialog-overlay delete-file-modal-overlay">
+      <div className="delete-file-modal">
+        <button type="button" className="delete-file-modal-close" onClick={onClose}>×</button>
         <h3>Подтверждение удаления</h3>
         <p>Вы уверены, что хотите удалить файл <strong>"{fileName}"</strong>?</p>
         <p className="warning-text">Все связанные диаграммы также будут удалены. Это действие нельзя отменить.</p>
@@ -20,7 +21,7 @@ function DeleteFileModal({ isOpen, onClose, onConfirm, fileName }) {
           </button>
         </div>
       </div>
-    </div>
+    </dialog>
   )
 }
 

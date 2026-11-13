@@ -1,17 +1,16 @@
 import { useState, useEffect } from 'react'
+import { useModalDialog } from '../hooks/useModalDialog'
 import './RenameFileModal.css'
 
 function RenameFileModal({ isOpen, onClose, onRename, currentName, isLoading }) {
   const [newName, setNewName] = useState(currentName || '')
+  const dialogRef = useModalDialog({ isOpen, onClose, closeDisabled: Boolean(isLoading) })
 
-  // Обновляем имя при открытии модалки
   useEffect(() => {
     if (isOpen) {
       setNewName(currentName || '')
     }
   }, [isOpen, currentName])
-
-  if (!isOpen) return null
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -21,8 +20,8 @@ function RenameFileModal({ isOpen, onClose, onRename, currentName, isLoading }) 
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+    <dialog ref={dialogRef} className="app-dialog-overlay modal-overlay">
+      <div className="modal-content">
         <h3>Переименовать файл</h3>
         <form onSubmit={handleSubmit}>
           <input
@@ -44,7 +43,7 @@ function RenameFileModal({ isOpen, onClose, onRename, currentName, isLoading }) 
           </div>
         </form>
       </div>
-    </div>
+    </dialog>
   )
 }
 

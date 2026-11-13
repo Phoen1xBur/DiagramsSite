@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useModalDialog } from '../hooks/useModalDialog'
 import './SaveAsNewModal.css'
 
 function SaveAsNewModal({ isOpen, onClose, onSave, onEmptyName }) {
@@ -6,11 +7,11 @@ function SaveAsNewModal({ isOpen, onClose, onSave, onEmptyName }) {
     `Диаграмма от ${new Date().toLocaleDateString('ru-RU')} ${new Date().toLocaleTimeString('ru-RU')}`
   const [name, setName] = useState(makeDefaultName)
   const inputRef = useRef(null)
+  const dialogRef = useModalDialog({ isOpen, onClose })
 
   useEffect(() => {
     if (isOpen) {
       setName(makeDefaultName())
-      // Focus after paint so the field is visible and active.
       const t = setTimeout(() => {
         if (inputRef.current) {
           inputRef.current.focus()
@@ -20,8 +21,6 @@ function SaveAsNewModal({ isOpen, onClose, onSave, onEmptyName }) {
       return () => clearTimeout(t)
     }
   }, [isOpen])
-
-  if (!isOpen) return null
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -35,8 +34,8 @@ function SaveAsNewModal({ isOpen, onClose, onSave, onEmptyName }) {
   }
 
   return (
-    <div className="modal-overlay save-as-new-overlay" onClick={onClose}>
-      <div className="modal-content save-as-new-modal" onClick={(e) => e.stopPropagation()}>
+    <dialog ref={dialogRef} className="app-dialog-overlay modal-overlay save-as-new-overlay">
+      <div className="modal-content save-as-new-modal">
         <h3>Сохранить как новую диаграмму</h3>
         <form onSubmit={handleSubmit}>
           <label htmlFor="diagram-name">Наименование диаграммы:</label>
@@ -61,7 +60,7 @@ function SaveAsNewModal({ isOpen, onClose, onSave, onEmptyName }) {
           </div>
         </form>
       </div>
-    </div>
+    </dialog>
   )
 }
 

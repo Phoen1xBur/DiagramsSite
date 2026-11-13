@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { useNotification } from '../contexts/NotificationContext'
+import { useModalDialog } from '../hooks/useModalDialog'
 import './AddColumnModal.css'
 
 function AddColumnModal({ isOpen, onClose, onAdd }) {
   const { showNotification } = useNotification()
   const [columnName, setColumnName] = useState('')
+  const dialogRef = useModalDialog({ isOpen, onClose })
 
   useEffect(() => {
     if (isOpen) {
@@ -22,12 +24,10 @@ function AddColumnModal({ isOpen, onClose, onAdd }) {
     onClose()
   }
 
-  if (!isOpen) return null
-
   return (
-    <div className="add-column-modal-overlay" onClick={onClose}>
-      <div className="add-column-modal" onClick={(e) => e.stopPropagation()}>
-        <button className="add-column-modal-close" onClick={onClose}>×</button>
+    <dialog ref={dialogRef} className="app-dialog-overlay add-column-modal-overlay">
+      <div className="add-column-modal">
+        <button type="button" className="add-column-modal-close" onClick={onClose}>×</button>
         <h3>Добавить столбец</h3>
         <form onSubmit={handleSubmit}>
           <input
@@ -48,7 +48,7 @@ function AddColumnModal({ isOpen, onClose, onAdd }) {
           </div>
         </form>
       </div>
-    </div>
+    </dialog>
   )
 }
 
